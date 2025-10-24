@@ -1,0 +1,616 @@
+====================================================================================================
+HASIL PREDIKSI DBSCAN DENGAN PREPROCESSING
+(Cluster >= 0: Normal, Cluster = -1: Anomali)
+====================================================================================================
+
+--- Log #1 ---
+ORIGINAL    : 2025-10-13T10:48:55Z [ERROR] NullReferenceException at UserService.cs:100
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:100
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #2 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:36:02Z", "error": "CRITICAL", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "critical", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #3 ---
+ORIGINAL    : 2025-10-13T10:12:46Z [ErrorLog] Database connection failed after 9216ms timeout
+PREPROCESSED: error: z database connection failed after 9216ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #4 ---
+ORIGINAL    : 2025-10-13T10:29:42Z [ERROR] Payment processing failed: User ID 2255, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 2255, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #5 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:34:01Z", "error": "CRITICAL", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "critical", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #6 ---
+ORIGINAL    : 2025-10-13T10:03:24Z [UnhandledException] Database connection failed after 4414ms timeout
+PREPROCESSED: z database connection failed after 4414ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #7 ---
+ORIGINAL    : 2025-10-13T10:35:28Z [ErrorLog] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #8 ---
+ORIGINAL    : 2025-10-13T10:03:36Z [PHPFatalError] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #9 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:35:09Z", "error": "ERROR", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "error", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #10 ---
+ORIGINAL    : 2025-10-13T10:24:14Z [UnhandledException] Database connection failed after 7199ms timeout
+PREPROCESSED: z database connection failed after 7199ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #11 ---
+ORIGINAL    : 2025-10-13T10:44:53Z [SystemError] Database connection failed after 5143ms timeout
+PREPROCESSED: error: z database connection failed after 5143ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #12 ---
+ORIGINAL    : 2025-10-13T10:11:40Z [ErrorLog] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #13 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:50:24Z", "error": "SystemError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "systemerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #14 ---
+ORIGINAL    : 2025-10-13T10:45:50Z [ErrorLog] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #15 ---
+ORIGINAL    : 2025-10-13T10:20:05Z [SystemError] Payment processing failed: User ID 4008, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 4008, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #16 ---
+ORIGINAL    : 2025-10-13T10:49:12Z [UnhandledException] NullReferenceException at UserService.cs:172
+PREPROCESSED: z nullreferenceexception at userservice.cs:172
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #17 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:03:12Z", "error": "UnhandledException", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "unhandledexception", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #18 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:33:45Z", "error": "ERROR", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "error", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #19 ---
+ORIGINAL    : 2025-10-13T10:52:54Z [PHPFatalError] Database connection failed after 6168ms timeout
+PREPROCESSED: error: z database connection failed after 6168ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #20 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:26:47Z", "error": "UnhandledException", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "unhandledexception", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #21 ---
+ORIGINAL    : 2025-10-13T10:42:56Z [CRITICAL] NullReferenceException at UserService.cs:143
+PREPROCESSED: critical: z nullreferenceexception at userservice.cs:143
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #22 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:28:52Z", "error": "ERROR", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "error", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #23 ---
+ORIGINAL    : 2025-10-13T10:45:45Z [CRITICAL] NullReferenceException at UserService.cs:31
+PREPROCESSED: critical: z nullreferenceexception at userservice.cs:31
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #24 ---
+ORIGINAL    : 2025-10-13T10:24:25Z [SystemError] Payment processing failed: User ID 2293, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 2293, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #25 ---
+ORIGINAL    : 2025-10-13T10:58:06Z [SystemError] Payment processing failed: User ID 9028, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 9028, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #26 ---
+ORIGINAL    : 2025-10-13T10:40:29Z [UnhandledException] Database connection failed after 4825ms timeout
+PREPROCESSED: z database connection failed after 4825ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #27 ---
+ORIGINAL    : 2025-10-13T10:35:01Z [SystemError] Database connection failed after 9484ms timeout
+PREPROCESSED: error: z database connection failed after 9484ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #28 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:15:09Z", "error": "CRITICAL", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "critical", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #29 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:36:06Z", "error": "UnhandledException", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "unhandledexception", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #30 ---
+ORIGINAL    : 2025-10-13T10:26:45Z [PHPFatalError] NullReferenceException at UserService.cs:24
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:24
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #31 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:31:38Z", "error": "ErrorLog", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "errorlog", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #32 ---
+ORIGINAL    : 2025-10-13T10:44:43Z [ERROR] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #33 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:48:11Z", "error": "SystemError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "systemerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #34 ---
+ORIGINAL    : 2025-10-13T10:12:16Z [SystemError] Payment processing failed: User ID 5117, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 5117, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #35 ---
+ORIGINAL    : 2025-10-13T10:17:59Z [PHPFatalError] NullReferenceException at UserService.cs:73
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:73
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #36 ---
+ORIGINAL    : 2025-10-13T10:55:37Z [UnhandledException] Payment processing failed: User ID 5524, Reason: 'Insufficient balance'
+PREPROCESSED: z payment processing failed: user id 5524, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #37 ---
+ORIGINAL    : 2025-10-13T10:20:48Z [SystemError] Database connection failed after 5468ms timeout
+PREPROCESSED: error: z database connection failed after 5468ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #38 ---
+ORIGINAL    : 2025-10-13T10:32:18Z [UnhandledException] Fatal: unhandled exception while parsing log file
+PREPROCESSED: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #39 ---
+ORIGINAL    : 2025-10-13T10:07:21Z [CRITICAL] Payment processing failed: User ID 5302, Reason: 'Insufficient balance'
+PREPROCESSED: critical: z payment processing failed: user id 5302, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #40 ---
+ORIGINAL    : 2025-10-13T10:16:45Z [PHPFatalError] Database connection failed after 5036ms timeout
+PREPROCESSED: error: z database connection failed after 5036ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #41 ---
+ORIGINAL    : 2025-10-13T10:01:13Z [PHPFatalError] Payment processing failed: User ID 8963, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 8963, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #42 ---
+ORIGINAL    : 2025-10-13T10:03:53Z [UnhandledException] Database connection failed after 3969ms timeout
+PREPROCESSED: z database connection failed after 3969ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #43 ---
+ORIGINAL    : 2025-10-13T10:42:58Z [PHPFatalError] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #44 ---
+ORIGINAL    : 2025-10-13T10:43:22Z [ErrorLog] NullReferenceException at UserService.cs:33
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:33
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #45 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:00:36Z", "error": "PHPFatalError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "phpfatalerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #46 ---
+ORIGINAL    : 2025-10-13T10:35:51Z [ErrorLog] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #47 ---
+ORIGINAL    : 2025-10-13T10:50:42Z [ERROR] Payment processing failed: User ID 7502, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 7502, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #48 ---
+ORIGINAL    : 2025-10-13T10:32:30Z [UnhandledException] Payment processing failed: User ID 1204, Reason: 'Insufficient balance'
+PREPROCESSED: z payment processing failed: user id 1204, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #49 ---
+ORIGINAL    : 2025-10-13T10:43:15Z [ErrorLog] Database connection failed after 2593ms timeout
+PREPROCESSED: error: z database connection failed after 2593ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #50 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:24:38Z", "error": "SystemError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "systemerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #51 ---
+ORIGINAL    : 2025-10-13T10:16:24Z [UnhandledException] Payment processing failed: User ID 9207, Reason: 'Insufficient balance'
+PREPROCESSED: z payment processing failed: user id 9207, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #52 ---
+ORIGINAL    : 2025-10-13T10:35:05Z [SystemError] Database connection failed after 6854ms timeout
+PREPROCESSED: error: z database connection failed after 6854ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #53 ---
+ORIGINAL    : 2025-10-13T10:10:34Z [UnhandledException] NullReferenceException at UserService.cs:27
+PREPROCESSED: z nullreferenceexception at userservice.cs:27
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #54 ---
+ORIGINAL    : 2025-10-13T10:36:46Z [SystemError] NullReferenceException at UserService.cs:178
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:178
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #55 ---
+ORIGINAL    : 2025-10-13T10:53:08Z [SystemError] Database connection failed after 3380ms timeout
+PREPROCESSED: error: z database connection failed after 3380ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #56 ---
+ORIGINAL    : 2025-10-13T10:10:40Z [CRITICAL] Fatal: unhandled exception while parsing log file
+PREPROCESSED: critical: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #57 ---
+ORIGINAL    : 2025-10-13T10:07:49Z [PHPFatalError] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #58 ---
+ORIGINAL    : 2025-10-13T10:21:05Z [ErrorLog] Database connection failed after 5588ms timeout
+PREPROCESSED: error: z database connection failed after 5588ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #59 ---
+ORIGINAL    : 2025-10-13T10:12:50Z [ErrorLog] Database connection failed after 3984ms timeout
+PREPROCESSED: error: z database connection failed after 3984ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #60 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:40:28Z", "error": "PHPFatalError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "phpfatalerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #61 ---
+ORIGINAL    : 2025-10-13T10:04:18Z [PHPFatalError] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #62 ---
+ORIGINAL    : 2025-10-13T10:40:59Z [SystemError] Payment processing failed: User ID 6935, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 6935, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #63 ---
+ORIGINAL    : 2025-10-13T10:28:16Z [PHPFatalError] Database connection failed after 6250ms timeout
+PREPROCESSED: error: z database connection failed after 6250ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #64 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:08:33Z", "error": "ERROR", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "error", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #65 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:08:46Z", "error": "PHPFatalError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "phpfatalerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #66 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:27:05Z", "error": "UnhandledException", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "unhandledexception", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #67 ---
+ORIGINAL    : 2025-10-13T10:56:15Z [PHPFatalError] NullReferenceException at UserService.cs:180
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:180
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #68 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:27:09Z", "error": "ErrorLog", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "errorlog", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #69 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:02:02Z", "error": "CRITICAL", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "critical", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #70 ---
+ORIGINAL    : 2025-10-13T10:51:36Z [UnhandledException] Fatal: unhandled exception while parsing log file
+PREPROCESSED: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #71 ---
+ORIGINAL    : 2025-10-13T10:20:17Z [PHPFatalError] NullReferenceException at UserService.cs:45
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:45
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #72 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:33:56Z", "error": "SystemError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "systemerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #73 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:30:57Z", "error": "SystemError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "systemerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #74 ---
+ORIGINAL    : 2025-10-13T10:55:49Z [SystemError] Payment processing failed: User ID 1909, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 1909, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #75 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:53:40Z", "error": "PHPFatalError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "phpfatalerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #76 ---
+ORIGINAL    : 2025-10-13T10:26:30Z [ErrorLog] Database connection failed after 5304ms timeout
+PREPROCESSED: error: z database connection failed after 5304ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #77 ---
+ORIGINAL    : 2025-10-13T10:46:59Z [SystemError] Database connection failed after 3136ms timeout
+PREPROCESSED: error: z database connection failed after 3136ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #78 ---
+ORIGINAL    : 2025-10-13T10:16:08Z [ErrorLog] Database connection failed after 6355ms timeout
+PREPROCESSED: error: z database connection failed after 6355ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #79 ---
+ORIGINAL    : 2025-10-13T10:00:36Z [CRITICAL] Payment processing failed: User ID 5845, Reason: 'Insufficient balance'
+PREPROCESSED: critical: z payment processing failed: user id 5845, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #80 ---
+ORIGINAL    : 2025-10-13T10:59:55Z [ERROR] Payment processing failed: User ID 8469, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 8469, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #81 ---
+ORIGINAL    : 2025-10-13T10:50:11Z [ERROR] Payment processing failed: User ID 3020, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 3020, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #82 ---
+ORIGINAL    : 2025-10-13T10:46:45Z [ERROR] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #83 ---
+ORIGINAL    : 2025-10-13T10:09:46Z [PHPFatalError] Database connection failed after 6236ms timeout
+PREPROCESSED: error: z database connection failed after 6236ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #84 ---
+ORIGINAL    : 2025-10-13T10:44:40Z [PHPFatalError] Database connection failed after 4287ms timeout
+PREPROCESSED: error: z database connection failed after 4287ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #85 ---
+ORIGINAL    : 2025-10-13T10:03:24Z [PHPFatalError] Payment processing failed: User ID 4427, Reason: 'Insufficient balance'
+PREPROCESSED: error: z payment processing failed: user id 4427, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #86 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:28:02Z", "error": "SystemError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "systemerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #87 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:19:06Z", "error": "SystemError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "systemerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #88 ---
+ORIGINAL    : 2025-10-13T10:07:20Z [ErrorLog] Fatal: unhandled exception while parsing log file
+PREPROCESSED: error: z fatal: unhandled exception while parsing log file
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #89 ---
+ORIGINAL    : 2025-10-13T10:52:24Z [SystemError] NullReferenceException at UserService.cs:164
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:164
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #90 ---
+ORIGINAL    : 2025-10-13T10:37:53Z [PHPFatalError] Database connection failed after 4986ms timeout
+PREPROCESSED: error: z database connection failed after 4986ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #91 ---
+ORIGINAL    : 2025-10-13T10:41:10Z [PHPFatalError] NullReferenceException at UserService.cs:40
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:40
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #92 ---
+ORIGINAL    : 2025-10-13T10:04:39Z [PHPFatalError] NullReferenceException at UserService.cs:164
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:164
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #93 ---
+ORIGINAL    : 2025-10-13T10:56:24Z [ERROR] NullReferenceException at UserService.cs:51
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:51
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #94 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:07:34Z", "error": "PHPFatalError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "phpfatalerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #95 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:28:44Z", "error": "SystemError", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "systemerror", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #96 ---
+ORIGINAL    : 2025-10-13T10:51:01Z [ErrorLog] NullReferenceException at UserService.cs:13
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:13
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #97 ---
+ORIGINAL    : 2025-10-13T10:08:53Z [CRITICAL] Payment processing failed: User ID 3123, Reason: 'Insufficient balance'
+PREPROCESSED: critical: z payment processing failed: user id 3123, reason: 'insufficient balance'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #98 ---
+ORIGINAL    : 2025-10-13T10:39:04Z [CRITICAL] Database connection failed after 2561ms timeout
+PREPROCESSED: critical: z database connection failed after 2561ms timeout
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #99 ---
+ORIGINAL    : 2025-10-13T10:11:38Z [ErrorLog] NullReferenceException at UserService.cs:157
+PREPROCESSED: error: z nullreferenceexception at userservice.cs:157
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #100 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:59:21Z", "error": "CRITICAL", "module": "auth", "message": "JWT validation failed", "code": "AUTH401" }
+PREPROCESSED: error: { "timestamp": "z", "error": "critical", "module": "auth", "message": "jwt validation failed", "code": "auth401" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+
+====================================================================================================
+SUMMARY
+====================================================================================================
+Total logs processed : 100
+Total logs skipped   : 0
+Total anomalies      : 100
+Total normal logs    : 0
+
+Distribusi Cluster:
+  - Anomali (Cluster -1): 100 logs

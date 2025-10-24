@@ -1,0 +1,45 @@
+penjelasan
+
+pada skenario pertama ini digunakan hardaware berikut
+1. CPU I5 10300H
+2. GPU GTX 1650 Mobile 4GB
+3. 32 GB RAM 2933
+
+skenario bert:
+1. Bert tidak dilakukan pelatihan atau tuning.
+2. Menggunakan AutoModel pretrained bert-base-uncased to cuda GPU (to cuda GPU digunakan untuk mengakselerasi waktu transform ke vector)
+3. Digunakan 2 dataset log yaitu apache dan proxifier dengan jumlah total kombinasi dataset 77811.
+4. Proses tersebut menghasilkan 2 dataset npy untuk masinng masing dataset
+
+Skenario k-means:
+1. pada awalnya k ditentukan adalah 2 yaitu error dan normal/info log
+2. dilakukan penggabungan 2 dataset npy
+3. dilakukan kemudian penentuan optimal K dengan elbow method dan ditemukan ideal K ada di sekitar 4-5 (di sini kita akan menggunakan 4)
+4. Inisiasi model k means dengan parameter berikut
+    1. n_cluster = 4
+    2. method = k-means++
+    3. random_state=42
+    4.n_init = 10
+5. Training model kmeans dengan dataset dan parameter yang ditentukan
+6. Buat dump model menggunakan joblib yang menghasilkan dump model berekstensi .pkl untuk digunakan sebagai bahan testing
+7. lihat penyebaran data dengan print beberapa contoh data yang ada di masing masing cluster untuk menentukan label cluster
+    misal : dalam cluster 1 contoh 10 data pertama adalah data dari log normal maka kita tentukan ini sebagai cluster normal dst
+
+Skenario dbscan:
+1.
+
+Skenario testing dengan random format log:
+1. dibuat kumpulan log dengan berbagai format yang berbeda
+2. test log dibagi menjadi 3 bagian yang masing masing bagian ada 100 log
+    1. info/normal log
+    2. error log
+    3. warning log
+3. Log tersebut kemudian di load kedalam k-means dan dbscan model
+4. setelah itu kita bisa melihat masing masing log ini masuk ke dalam cluster mana
+5. pencatatan masing masing group log untuk melihat di skenario ini seberapa akurat 2 model ini
+6. Hasil:
+    1. warning log
+        Kmeans = 99%
+        Dbscan =
+    2. Normal/Info log
+    3. Error log

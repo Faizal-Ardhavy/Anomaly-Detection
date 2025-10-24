@@ -48,3 +48,5 @@ MANIFEST
 
 # VS Code
 .vscode/
+# ML Model files
+.pkl

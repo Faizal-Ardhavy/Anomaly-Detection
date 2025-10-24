@@ -1,0 +1,59 @@
+penjelasan
+
+pada skenario pertama ini digunakan hardaware berikut
+1. CPU I5 10300H
+2. GPU GTX 1650 Mobile 4GB
+3. 32 GB RAM 2933
+
+Skenario PREPROCESSING:
+Langkah 1: Hilangkan Bagian Tidak Penting
+
+Hilangkan informasi yang tidak relevan atau terlalu spesifik
+Langkah 2: Lowercase (Huruf Kecil Semua)
+Langkah 3: Tokenisasi
+
+Pisahkan teks jadi kata-kata (token).
+
+Misalnya: ["error", "database", "timeout"]
+Langkah 4: Stopword Removal (Opsional)
+
+Hapus kata umum yang tidak menambah arti khusus, seperti: the, in, from, on, and, dll.
+ Langkah 5: Lemmatization / Stemming (Opsional)
+
+Ubah kata ke bentuk dasarnya:
+logged, logging → log
+
+timeout, timed out → timeout
+
+skenario bert:
+1. Bert tidak dilakukan pelatihan atau tuning.
+2. Menggunakan AutoModel pretrained bert-base-uncased to cuda GPU (to cuda GPU digunakan untuk mengakselerasi waktu transform ke vector)
+3. Digunakan 2 dataset log yaitu apache dan proxifier dengan jumlah total kombinasi dataset 77811.
+4. Proses tersebut menghasilkan 2 dataset npy untuk masinng masing dataset
+
+Skenario k-means:
+1.Analisis Awal (k=2): Menjalankan K-Means dengan k=2 untuk melihat pemisahan dasar antara "Normal" dan "Anomali".
+
+2. Eksperimen Jarak Euclidean: Menemukan nilai k optimal menggunakan Elbow Method dengan metrik jarak standar (Euclidean).
+
+3 Eksperimen Jarak Cosine: Menemukan nilai k optimal menggunakan Elbow Method dengan metrik Jarak Cosine. Ini dicapai dengan sebuah trik: menormalisasi vektor sebelum melatih model. Ketika vektor dinormalisasi, meminimalkan Jarak Euclidean menjadi setara dengan memaksimalkan Cosine Similarity.
+
+
+Skenario dbscan:
+1.
+
+Skenario testing dengan random format log:
+1. dibuat kumpulan log dengan berbagai format yang berbeda
+2. test log dibagi menjadi 3 bagian yang masing masing bagian ada 100 log
+    1. info/normal log
+    2. error log
+    3. warning log
+3. Log tersebut kemudian di load kedalam k-means dan dbscan model
+4. setelah itu kita bisa melihat masing masing log ini masuk ke dalam cluster mana
+5. pencatatan masing masing group log untuk melihat di skenario ini seberapa akurat 2 model ini
+6. Hasil:
+    1. warning log
+        Kmeans = 99%
+        Dbscan =
+    2. Normal/Info log
+    3. Error log

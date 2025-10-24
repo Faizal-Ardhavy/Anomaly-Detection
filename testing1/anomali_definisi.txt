@@ -1,0 +1,87 @@
+🔹 1. K-Means++
+📌 Cara Kerja:
+
+K-Means++ adalah versi perbaikan dari algoritma K-Means dalam hal pemilihan titik pusat (centroid) awal supaya hasil klastering lebih baik dan stabil.
+
+Langkah-langkah:
+
+Pilih satu centroid awal secara acak dari data.
+
+Hitung jarak semua titik ke centroid yang sudah dipilih.
+
+Pilih centroid berikutnya dengan probabilitas yang lebih tinggi untuk titik yang jauh dari centroid sebelumnya.
+
+Ulangi sampai ada k centroid terpilih.
+
+Jalankan algoritma K-Means biasa:
+
+Assign tiap titik ke centroid terdekat.
+
+Update centroid sebagai rata-rata dari titik dalam satu klaster.
+
+Ulangi sampai konvergen (centroid tidak berubah lagi).
+
+⚙️ Parameter Utama:
+
+n_clusters (k): Jumlah klaster. Parameter paling krusial. Jika terlalu kecil/besar, hasil tidak akurat.
+
+init: Biasanya "k-means++" untuk pemilihan centroid yang lebih stabil.
+
+max_iter: Jumlah maksimum iterasi. Default: 300.
+
+n_init: Jumlah inisialisasi berbeda untuk mencari solusi terbaik.
+
+🎯 Akurasi dipengaruhi oleh:
+
+Pemilihan jumlah klaster (k): Jika tidak sesuai, model tidak representatif.
+
+Skalabilitas data: K-Means sensitif terhadap skala. Data harus di-normalisasi.
+
+Distribusi data: K-Means mengasumsikan bentuk klaster bulat (spherical). Kalau bentuk klasternya kompleks, performanya menurun.
+
+🔹 2. DBSCAN (Density-Based Spatial Clustering of Applications with Noise)
+📌 Cara Kerja:
+
+DBSCAN adalah algoritma klastering berbasis kepadatan titik. Tidak perlu menentukan jumlah klaster di awal dan dapat mendeteksi noise / outlier.
+
+Langkah-langkah:
+
+Tentukan parameter:
+
+eps: Jarak maksimum dua titik agar dianggap bertetangga.
+
+min_samples: Minimum jumlah titik dalam radius eps untuk membentuk klaster.
+
+Untuk setiap titik:
+
+Jika titik punya cukup tetangga (min_samples dalam eps), jadikan sebagai core point dan mulai buat klaster.
+
+Tetangga yang cukup dekat dianggap bagian dari klaster yang sama.
+
+Titik yang tidak memenuhi kriteria jadi noise / outlier.
+
+⚙️ Parameter Utama:
+
+eps: Jarak maksimum untuk neighborhood. Paling sensitif.
+
+min_samples: Minimum jumlah tetangga agar titik jadi core point.
+
+(opsional) metric: Fungsi jarak yang digunakan (default: Euclidean).
+
+🎯 Akurasi dipengaruhi oleh:
+
+Pemilihan eps: Kalau terlalu kecil → banyak noise. Terlalu besar → klaster bisa menyatu.
+
+min_samples: Kalau terlalu kecil → noise jadi core point. Terlalu besar → titik bagus bisa dianggap noise.
+
+Skala data: Sama seperti K-Means, sebaiknya data di-normalisasi.
+
+Kepadatan data: DBSCAN cocok untuk data dengan klaster berdensitas tinggi yang tidak seragam.
+
+🔍 Perbandingan Singkat
+Aspek	K-Means++	DBSCAN
+Jumlah klaster	Harus ditentukan (k)	Ditentukan otomatis berdasarkan kepadatan
+Bentuk klaster	Spherical (bulat/simetris)	Bebas bentuk, lebih fleksibel
+Outlier	Tidak ditangani	Bisa mendeteksi outlier
+Sensitivitas	Jumlah klaster, skala	eps, min_samples, skala
+Skalabilitas	Cepat di data besar	Lebih lambat di data besar

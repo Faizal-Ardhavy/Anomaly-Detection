@@ -1,0 +1,511 @@
+====================================================================================================
+HASIL PREDIKSI CLUSTER K-MEANS DENGAN PREPROCESSING
+====================================================================================================
+
+--- Log #1 ---
+ORIGINAL    : 2025-10-13T10:35:38Z [CAUTION] Memory usage exceeded threshold: 85% on 'web-2'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-2'
+CLUSTER     : 1
+
+--- Log #2 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:10:02Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-3" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-3" }
+CLUSTER     : 0
+
+--- Log #3 ---
+ORIGINAL    : 2025-10-13T10:58:12Z [CAUTION] Login attempts exceeded for user 'alice'
+PREPROCESSED: z login attempts exceeded for user 'alice'
+CLUSTER     : 0
+
+--- Log #4 ---
+ORIGINAL    : 2025-10-13T10:20:42Z [WARNING] Memory usage exceeded threshold: 85% on 'web-1'
+PREPROCESSED: warning: z memory usage exceeded threshold: 85% on 'web-1'
+CLUSTER     : 1
+
+--- Log #5 ---
+ORIGINAL    : 2025-10-13T10:56:59Z [ALERT] Login attempts exceeded for user 'eve'
+PREPROCESSED: z login attempts exceeded for user 'eve'
+CLUSTER     : 0
+
+--- Log #6 ---
+ORIGINAL    : 2025-10-13T10:48:06Z [WARNING] Memory usage exceeded threshold: 85% on 'web-1'
+PREPROCESSED: warning: z memory usage exceeded threshold: 85% on 'web-1'
+CLUSTER     : 1
+
+--- Log #7 ---
+ORIGINAL    : 2025-10-13T10:17:26Z [ALERT] High latency detected for endpoint /api/v1/login
+PREPROCESSED: z high latency detected for endpoint /api/v1/login
+CLUSTER     : 0
+
+--- Log #8 ---
+ORIGINAL    : 2025-10-13T10:22:22Z [WARN] Disk space warning: 87% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 87% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #9 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:37:15Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-8" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-8" }
+CLUSTER     : 0
+
+--- Log #10 ---
+ORIGINAL    : 2025-10-13T10:47:16Z [CAUTION] High latency detected for endpoint /api/v1/login
+PREPROCESSED: z high latency detected for endpoint /api/v1/login
+CLUSTER     : 0
+
+--- Log #11 ---
+ORIGINAL    : 2025-10-13T10:01:15Z [WARNING] Login attempts exceeded for user 'diana'
+PREPROCESSED: warning: z login attempts exceeded for user 'diana'
+CLUSTER     : 0
+
+--- Log #12 ---
+ORIGINAL    : 2025-10-13T10:42:25Z [WARNING] High latency detected for endpoint /api/v1/order
+PREPROCESSED: warning: z high latency detected for endpoint /api/v1/order
+CLUSTER     : 0
+
+--- Log #13 ---
+ORIGINAL    : 2025-10-13T10:23:44Z [WARNING] Memory usage exceeded threshold: 85% on 'web-5'
+PREPROCESSED: warning: z memory usage exceeded threshold: 85% on 'web-5'
+CLUSTER     : 1
+
+--- Log #14 ---
+ORIGINAL    : 2025-10-13T10:11:45Z [WARN] Login attempts exceeded for user 'charlie'
+PREPROCESSED: z login attempts exceeded for user 'charlie'
+CLUSTER     : 0
+
+--- Log #15 ---
+ORIGINAL    : 2025-10-13T10:12:51Z [Notice] Disk space warning: 95% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 95% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #16 ---
+ORIGINAL    : 2025-10-13T10:54:38Z [Notice] High latency detected for endpoint /api/v2/products
+PREPROCESSED: notice: z high latency detected for endpoint /api/v2/products
+CLUSTER     : 0
+
+--- Log #17 ---
+ORIGINAL    : 2025-10-13T10:49:09Z [WARN] High latency detected for endpoint /api/v1/login
+PREPROCESSED: z high latency detected for endpoint /api/v1/login
+CLUSTER     : 0
+
+--- Log #18 ---
+ORIGINAL    : 2025-10-13T10:01:05Z [WARN] Login attempts exceeded for user 'heidi'
+PREPROCESSED: z login attempts exceeded for user 'heidi'
+CLUSTER     : 0
+
+--- Log #19 ---
+ORIGINAL    : 2025-10-13T10:08:10Z [Notice] Disk space warning: 83% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 83% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #20 ---
+ORIGINAL    : 2025-10-13T10:05:56Z [CAUTION] Login attempts exceeded for user 'alice'
+PREPROCESSED: z login attempts exceeded for user 'alice'
+CLUSTER     : 0
+
+--- Log #21 ---
+ORIGINAL    : 2025-10-13T10:43:07Z [CAUTION] Disk space warning: 84% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 84% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #22 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:19:22Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-1" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-1" }
+CLUSTER     : 0
+
+--- Log #23 ---
+ORIGINAL    : 2025-10-13T10:56:49Z [ALERT] High latency detected for endpoint /api/v1/logout
+PREPROCESSED: z high latency detected for endpoint /api/v1/logout
+CLUSTER     : 0
+
+--- Log #24 ---
+ORIGINAL    : 2025-10-13T10:09:52Z [WARNING] Memory usage exceeded threshold: 85% on 'web-5'
+PREPROCESSED: warning: z memory usage exceeded threshold: 85% on 'web-5'
+CLUSTER     : 1
+
+--- Log #25 ---
+ORIGINAL    : 2025-10-13T10:34:19Z [WARNING] High latency detected for endpoint /api/v1/order
+PREPROCESSED: warning: z high latency detected for endpoint /api/v1/order
+CLUSTER     : 0
+
+--- Log #26 ---
+ORIGINAL    : 2025-10-13T10:55:08Z [WARN] Memory usage exceeded threshold: 85% on 'web-2'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-2'
+CLUSTER     : 1
+
+--- Log #27 ---
+ORIGINAL    : 2025-10-13T10:47:49Z [ALERT] High latency detected for endpoint /api/v1/logout
+PREPROCESSED: z high latency detected for endpoint /api/v1/logout
+CLUSTER     : 0
+
+--- Log #28 ---
+ORIGINAL    : 2025-10-13T10:38:44Z [CAUTION] Disk space warning: 89% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 89% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #29 ---
+ORIGINAL    : 2025-10-13T10:06:51Z [CAUTION] Memory usage exceeded threshold: 85% on 'web-3'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-3'
+CLUSTER     : 1
+
+--- Log #30 ---
+ORIGINAL    : 2025-10-13T10:55:47Z [WARN] High latency detected for endpoint /api/v2/products
+PREPROCESSED: z high latency detected for endpoint /api/v2/products
+CLUSTER     : 0
+
+--- Log #31 ---
+ORIGINAL    : 2025-10-13T10:53:57Z [WARNING] High latency detected for endpoint /api/v1/login
+PREPROCESSED: warning: z high latency detected for endpoint /api/v1/login
+CLUSTER     : 0
+
+--- Log #32 ---
+ORIGINAL    : 2025-10-13T10:06:00Z [Notice] Login attempts exceeded for user 'eve'
+PREPROCESSED: notice: z login attempts exceeded for user 'eve'
+CLUSTER     : 0
+
+--- Log #33 ---
+ORIGINAL    : 2025-10-13T10:15:45Z [Notice] Disk space warning: 92% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 92% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #34 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:38:04Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-5" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-5" }
+CLUSTER     : 0
+
+--- Log #35 ---
+ORIGINAL    : 2025-10-13T10:49:05Z [WARNING] Disk space warning: 96% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 96% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #36 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:11:56Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-5" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-5" }
+CLUSTER     : 0
+
+--- Log #37 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:52:10Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-5" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-5" }
+CLUSTER     : 0
+
+--- Log #38 ---
+ORIGINAL    : 2025-10-13T10:00:34Z [Notice] Disk space warning: 92% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 92% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #39 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:21:26Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-2" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-2" }
+CLUSTER     : 0
+
+--- Log #40 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:23:26Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-8" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-8" }
+CLUSTER     : 0
+
+--- Log #41 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:31:13Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-9" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-9" }
+CLUSTER     : 0
+
+--- Log #42 ---
+ORIGINAL    : 2025-10-13T10:24:28Z [ALERT] Memory usage exceeded threshold: 85% on 'web-6'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-6'
+CLUSTER     : 1
+
+--- Log #43 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:36:12Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-9" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-9" }
+CLUSTER     : 0
+
+--- Log #44 ---
+ORIGINAL    : 2025-10-13T10:07:45Z [Notice] Memory usage exceeded threshold: 85% on 'web-9'
+PREPROCESSED: notice: z memory usage exceeded threshold: 85% on 'web-9'
+CLUSTER     : 1
+
+--- Log #45 ---
+ORIGINAL    : 2025-10-13T10:02:36Z [WARNING] Disk space warning: 86% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 86% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #46 ---
+ORIGINAL    : 2025-10-13T10:39:06Z [WARNING] High latency detected for endpoint /api/v2/products
+PREPROCESSED: warning: z high latency detected for endpoint /api/v2/products
+CLUSTER     : 0
+
+--- Log #47 ---
+ORIGINAL    : 2025-10-13T10:39:57Z [CAUTION] Memory usage exceeded threshold: 85% on 'web-3'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-3'
+CLUSTER     : 1
+
+--- Log #48 ---
+ORIGINAL    : 2025-10-13T10:05:44Z [Notice] Login attempts exceeded for user 'frank'
+PREPROCESSED: notice: z login attempts exceeded for user 'frank'
+CLUSTER     : 0
+
+--- Log #49 ---
+ORIGINAL    : 2025-10-13T10:04:33Z [ALERT] Memory usage exceeded threshold: 85% on 'web-3'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-3'
+CLUSTER     : 1
+
+--- Log #50 ---
+ORIGINAL    : 2025-10-13T10:58:00Z [WARN] Memory usage exceeded threshold: 85% on 'web-3'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-3'
+CLUSTER     : 1
+
+--- Log #51 ---
+ORIGINAL    : 2025-10-13T10:05:02Z [ALERT] Login attempts exceeded for user 'diana'
+PREPROCESSED: z login attempts exceeded for user 'diana'
+CLUSTER     : 1
+
+--- Log #52 ---
+ORIGINAL    : 2025-10-13T10:40:55Z [Notice] Disk space warning: 81% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 81% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #53 ---
+ORIGINAL    : 2025-10-13T10:53:19Z [ALERT] High latency detected for endpoint /status
+PREPROCESSED: z high latency detected for endpoint /status
+CLUSTER     : 0
+
+--- Log #54 ---
+ORIGINAL    : 2025-10-13T10:16:15Z [Notice] Disk space warning: 88% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 88% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #55 ---
+ORIGINAL    : 2025-10-13T10:35:57Z [Notice] Disk space warning: 96% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 96% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #56 ---
+ORIGINAL    : 2025-10-13T10:35:40Z [ALERT] Login attempts exceeded for user 'frank'
+PREPROCESSED: z login attempts exceeded for user 'frank'
+CLUSTER     : 1
+
+--- Log #57 ---
+ORIGINAL    : 2025-10-13T10:29:10Z [Notice] High latency detected for endpoint /api/v1/logout
+PREPROCESSED: notice: z high latency detected for endpoint /api/v1/logout
+CLUSTER     : 0
+
+--- Log #58 ---
+ORIGINAL    : 2025-10-13T10:47:14Z [CAUTION] Login attempts exceeded for user 'diana'
+PREPROCESSED: z login attempts exceeded for user 'diana'
+CLUSTER     : 1
+
+--- Log #59 ---
+ORIGINAL    : 2025-10-13T10:47:13Z [ALERT] Memory usage exceeded threshold: 85% on 'web-10'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-10'
+CLUSTER     : 1
+
+--- Log #60 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:06:09Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-6" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-6" }
+CLUSTER     : 0
+
+--- Log #61 ---
+ORIGINAL    : 2025-10-13T10:21:38Z [WARNING] Disk space warning: 80% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 80% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #62 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:56:42Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-1" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-1" }
+CLUSTER     : 0
+
+--- Log #63 ---
+ORIGINAL    : 2025-10-13T10:11:08Z [WARN] High latency detected for endpoint /api/v1/logout
+PREPROCESSED: z high latency detected for endpoint /api/v1/logout
+CLUSTER     : 0
+
+--- Log #64 ---
+ORIGINAL    : 2025-10-13T10:09:43Z [Notice] High latency detected for endpoint /api/v2/products
+PREPROCESSED: notice: z high latency detected for endpoint /api/v2/products
+CLUSTER     : 0
+
+--- Log #65 ---
+ORIGINAL    : 2025-10-13T10:06:05Z [WARNING] Login attempts exceeded for user 'heidi'
+PREPROCESSED: warning: z login attempts exceeded for user 'heidi'
+CLUSTER     : 0
+
+--- Log #66 ---
+ORIGINAL    : 2025-10-13T10:02:35Z [WARNING] Login attempts exceeded for user 'heidi'
+PREPROCESSED: warning: z login attempts exceeded for user 'heidi'
+CLUSTER     : 0
+
+--- Log #67 ---
+ORIGINAL    : 2025-10-13T10:44:03Z [WARNING] Memory usage exceeded threshold: 85% on 'web-5'
+PREPROCESSED: warning: z memory usage exceeded threshold: 85% on 'web-5'
+CLUSTER     : 1
+
+--- Log #68 ---
+ORIGINAL    : 2025-10-13T10:46:44Z [WARN] High latency detected for endpoint /status
+PREPROCESSED: z high latency detected for endpoint /status
+CLUSTER     : 0
+
+--- Log #69 ---
+ORIGINAL    : 2025-10-13T10:08:34Z [WARN] Memory usage exceeded threshold: 85% on 'web-3'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-3'
+CLUSTER     : 1
+
+--- Log #70 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:33:11Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-5" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-5" }
+CLUSTER     : 0
+
+--- Log #71 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:54:39Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-3" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-3" }
+CLUSTER     : 0
+
+--- Log #72 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:39:28Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-10" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-10" }
+CLUSTER     : 0
+
+--- Log #73 ---
+ORIGINAL    : 2025-10-13T10:22:07Z [Notice] Login attempts exceeded for user 'bob'
+PREPROCESSED: notice: z login attempts exceeded for user 'bob'
+CLUSTER     : 0
+
+--- Log #74 ---
+ORIGINAL    : 2025-10-13T10:54:08Z [CAUTION] Memory usage exceeded threshold: 85% on 'web-6'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-6'
+CLUSTER     : 1
+
+--- Log #75 ---
+ORIGINAL    : 2025-10-13T10:47:58Z [ALERT] Disk space warning: 85% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 85% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #76 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:44:29Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-2" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-2" }
+CLUSTER     : 0
+
+--- Log #77 ---
+ORIGINAL    : 2025-10-13T10:25:16Z [Notice] Disk space warning: 86% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 86% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #78 ---
+ORIGINAL    : 2025-10-13T10:06:04Z [Notice] High latency detected for endpoint /api/v1/login
+PREPROCESSED: notice: z high latency detected for endpoint /api/v1/login
+CLUSTER     : 0
+
+--- Log #79 ---
+ORIGINAL    : 2025-10-13T10:35:10Z [WARNING] High latency detected for endpoint /api/v2/products
+PREPROCESSED: warning: z high latency detected for endpoint /api/v2/products
+CLUSTER     : 0
+
+--- Log #80 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:37:26Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-4" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-4" }
+CLUSTER     : 0
+
+--- Log #81 ---
+ORIGINAL    : 2025-10-13T10:53:28Z [WARN] Memory usage exceeded threshold: 85% on 'web-5'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-5'
+CLUSTER     : 1
+
+--- Log #82 ---
+ORIGINAL    : 2025-10-13T10:54:56Z [Notice] High latency detected for endpoint /api/v1/order
+PREPROCESSED: notice: z high latency detected for endpoint /api/v1/order
+CLUSTER     : 0
+
+--- Log #83 ---
+ORIGINAL    : 2025-10-13T10:07:02Z [WARN] Login attempts exceeded for user 'charlie'
+PREPROCESSED: z login attempts exceeded for user 'charlie'
+CLUSTER     : 0
+
+--- Log #84 ---
+ORIGINAL    : 2025-10-13T10:03:09Z [WARN] Login attempts exceeded for user 'eve'
+PREPROCESSED: z login attempts exceeded for user 'eve'
+CLUSTER     : 0
+
+--- Log #85 ---
+ORIGINAL    : 2025-10-13T10:17:15Z [Notice] Memory usage exceeded threshold: 85% on 'web-8'
+PREPROCESSED: notice: z memory usage exceeded threshold: 85% on 'web-8'
+CLUSTER     : 1
+
+--- Log #86 ---
+ORIGINAL    : 2025-10-13T10:32:06Z [ALERT] Memory usage exceeded threshold: 85% on 'web-6'
+PREPROCESSED: z memory usage exceeded threshold: 85% on 'web-6'
+CLUSTER     : 1
+
+--- Log #87 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:45:07Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-2" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-2" }
+CLUSTER     : 0
+
+--- Log #88 ---
+ORIGINAL    : 2025-10-13T10:10:10Z [WARNING] Disk space warning: 91% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 91% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #89 ---
+ORIGINAL    : 2025-10-13T10:51:10Z [CAUTION] Login attempts exceeded for user 'diana'
+PREPROCESSED: z login attempts exceeded for user 'diana'
+CLUSTER     : 1
+
+--- Log #90 ---
+ORIGINAL    : 2025-10-13T10:16:15Z [Notice] Memory usage exceeded threshold: 85% on 'web-7'
+PREPROCESSED: notice: z memory usage exceeded threshold: 85% on 'web-7'
+CLUSTER     : 1
+
+--- Log #91 ---
+ORIGINAL    : 2025-10-13T10:14:31Z [Notice] Disk space warning: 99% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 99% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #92 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:30:16Z", "type": "ResourceWarning", "cpu_load": 92, "host": "server-10" }
+PREPROCESSED: warning: { "timestamp": "z", "type": "resourcewarning", "cpu_load": 92, "host": "server-10" }
+CLUSTER     : 0
+
+--- Log #93 ---
+ORIGINAL    : 2025-10-13T10:42:08Z [WARN] Login attempts exceeded for user 'diana'
+PREPROCESSED: z login attempts exceeded for user 'diana'
+CLUSTER     : 1
+
+--- Log #94 ---
+ORIGINAL    : 2025-10-13T10:46:52Z [Notice] Login attempts exceeded for user 'alice'
+PREPROCESSED: notice: z login attempts exceeded for user 'alice'
+CLUSTER     : 0
+
+--- Log #95 ---
+ORIGINAL    : 2025-10-13T10:45:52Z [WARNING] High latency detected for endpoint /api/v1/order
+PREPROCESSED: warning: z high latency detected for endpoint /api/v1/order
+CLUSTER     : 0
+
+--- Log #96 ---
+ORIGINAL    : 2025-10-13T10:40:03Z [Notice] Disk space warning: 83% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 83% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #97 ---
+ORIGINAL    : 2025-10-13T10:35:31Z [ALERT] Login attempts exceeded for user 'charlie'
+PREPROCESSED: z login attempts exceeded for user 'charlie'
+CLUSTER     : 0
+
+--- Log #98 ---
+ORIGINAL    : 2025-10-13T10:47:21Z [Notice] Login attempts exceeded for user 'bob'
+PREPROCESSED: notice: z login attempts exceeded for user 'bob'
+CLUSTER     : 0
+
+--- Log #99 ---
+ORIGINAL    : 2025-10-13T10:31:31Z [ALERT] Disk space warning: 93% used on /dev/sda1
+PREPROCESSED: warning: z disk space warning: 93% used on /dev/sda1
+CLUSTER     : 0
+
+--- Log #100 ---
+ORIGINAL    : 2025-10-13T10:43:26Z [CAUTION] Login attempts exceeded for user 'alice'
+PREPROCESSED: z login attempts exceeded for user 'alice'
+CLUSTER     : 0
+
+
+====================================================================================================
+SUMMARY
+====================================================================================================
+Total logs processed: 100
+Total logs skipped  : 0
+Total logs read     : 100

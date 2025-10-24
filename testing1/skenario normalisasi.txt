@@ -1,0 +1,80 @@
+Tahapan Normalisasi Dataset Log (Step-by-Step)
+🔹 Langkah 1: Hilangkan Bagian Tidak Penting
+
+Hilangkan informasi yang tidak relevan atau terlalu spesifik, seperti:
+
+Timestamps (jika tidak digunakan sebagai fitur)
+
+IP address, user ID (kecuali kamu ingin analisis user/IP)
+
+Tujuan: agar model fokus pada pola pesan log, bukan variasi spesifik.
+
+Contoh:
+
+INFO - User logged in
+WARNING - Disk usage high
+ERROR - Database timeout
+
+🔹 Langkah 2: Lowercase (Huruf Kecil Semua)
+
+Untuk konsistensi teks.
+
+Error dan error dianggap sama.
+
+Hasil:
+
+info - user logged in
+warning - disk usage high
+error - database timeout
+
+🔹 Langkah 3: Tokenisasi
+
+Pisahkan teks jadi kata-kata (token).
+
+Misalnya: ["error", "database", "timeout"]
+
+🔹 Langkah 4: Stopword Removal (Opsional)
+
+Hapus kata umum yang tidak menambah arti khusus, seperti: the, in, from, on, and, dll.
+
+Bisa dilakukan jika kamu ingin fokus pada kata-kata penting.
+
+🔹 Langkah 5: Lemmatization / Stemming (Opsional)
+
+Ubah kata ke bentuk dasarnya:
+
+logged, logging → log
+
+timeout, timed out → timeout
+
+🔹 Langkah 6: Representasi Angka
+
+Setelah teks bersih, kamu ubah jadi angka agar bisa digunakan dalam model:
+
+Beberapa metode umum:
+Metode	Penjelasan Sederhana
+TF-IDF	Hitung seberapa penting kata dalam log
+Bag of Words	Hitung berapa kali kata muncul
+Word Embedding (Word2Vec, GloVe)	Ubah kata jadi vektor yang punya makna
+BERT Embedding	Lebih akurat, tapi kompleks (pakai model pretrained)
+🔹 Langkah 7: Normalisasi Nilai Numerik (Jika Ada)
+
+Kalau log kamu punya angka (misalnya: CPU usage, waktu eksekusi, ukuran file), normalisasi angkanya:
+
+Gunakan:
+
+Min-Max Scaling → ubah ke rentang 0-1
+
+Z-Score / StandardScaler → ubah agar punya mean = 0 dan std = 1
+
+📦 3. Hasil Akhir Dataset Siap Latih
+ID Log	Teks Asli	Preprocessed Text	TF-IDF / Vektor
+1	ERROR - Database connection timeout	["error", "database", "timeout"]	[0.6, 0.4, ...]
+2	INFO - User logged in	["info", "user", "log"]	[0.2, 0.1, ...]
+✅ Kesimpulan Simpel
+Langkah	Tujuan
+Bersihkan log (hilangkan timestamp, IP, dsb)	Fokus pada isi
+Ubah huruf ke lowercase	Konsistensi
+Tokenisasi, stemming, dll	Ekstrak kata penting
+Ubah ke angka (TF-IDF, dll)	Bisa diproses model
+Normalisasi numerik (kalau ada)	Model lebih stabil

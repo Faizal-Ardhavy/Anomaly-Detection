@@ -1,0 +1,616 @@
+====================================================================================================
+HASIL PREDIKSI DBSCAN DENGAN PREPROCESSING
+(Cluster >= 0: Normal, Cluster = -1: Anomali)
+====================================================================================================
+
+--- Log #1 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:16:09Z", "event": "LoginSuccess", "user": "grace", "ip": "46.151.185.74" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "grace", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #2 ---
+ORIGINAL    : 2025-10-13T10:42:35Z [Activity] Order #73397 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #3 ---
+ORIGINAL    : 2025-10-13T10:52:36Z [INFO] Health check passed for service 'webapp'
+PREPROCESSED: info: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #4 ---
+ORIGINAL    : 2025-10-13T10:49:32Z [Note] User 'bob' accessed dashboard from IP 42.130.226.200
+PREPROCESSED: z user 'bob' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #5 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:03:58Z", "event": "LoginSuccess", "user": "frank", "ip": "169.33.209.94" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "frank", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #6 ---
+ORIGINAL    : 2025-10-13T10:18:46Z [SystemLog] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #7 ---
+ORIGINAL    : 2025-10-13T10:26:54Z [INFO] Health check passed for service 'webapp'
+PREPROCESSED: info: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #8 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:40:16Z", "event": "LoginSuccess", "user": "diana", "ip": "192.160.198.226" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "diana", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #9 ---
+ORIGINAL    : 2025-10-13T10:03:36Z [UserAction] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #10 ---
+ORIGINAL    : 2025-10-13T10:07:24Z  Session for user 'bob' extended by 15 minutes
+PREPROCESSED: z session for user 'bob' extended by 15 minutes
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #11 ---
+ORIGINAL    : 2025-10-13T10:00:57Z [Note] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #12 ---
+ORIGINAL    : 2025-10-13T10:26:51Z [Activity] Order #44542 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #13 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:03:44Z", "event": "LoginSuccess", "user": "heidi", "ip": "2.159.174.205" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "heidi", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #14 ---
+ORIGINAL    : 2025-10-13T10:19:21Z [Activity] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #15 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:36:04Z", "event": "LoginSuccess", "user": "eve", "ip": "232.83.205.184" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "eve", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #16 ---
+ORIGINAL    : 2025-10-13T10:36:41Z [INFO] Order #84508 was confirmed and sent to shipping.
+PREPROCESSED: info: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #17 ---
+ORIGINAL    : 2025-10-13T10:42:05Z [INFO] Health check passed for service 'webapp'
+PREPROCESSED: info: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #18 ---
+ORIGINAL    : 2025-10-13T10:31:02Z [SystemLog] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #19 ---
+ORIGINAL    : 2025-10-13T10:08:45Z  Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #20 ---
+ORIGINAL    : 2025-10-13T10:28:32Z [Log] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #21 ---
+ORIGINAL    : 2025-10-13T10:42:44Z  Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #22 ---
+ORIGINAL    : 2025-10-13T10:24:58Z [Activity] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #23 ---
+ORIGINAL    : 2025-10-13T10:15:33Z [UserAction] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #24 ---
+ORIGINAL    : 2025-10-13T10:29:10Z [INFO] User 'alice' accessed dashboard from IP 193.91.85.160
+PREPROCESSED: info: z user 'alice' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #25 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:46:09Z", "event": "LoginSuccess", "user": "frank", "ip": "11.65.59.132" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "frank", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #26 ---
+ORIGINAL    : 2025-10-13T10:37:10Z [Activity] Session for user 'eve' extended by 15 minutes
+PREPROCESSED: z session for user 'eve' extended by 15 minutes
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #27 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:29:34Z", "event": "LoginSuccess", "user": "heidi", "ip": "108.62.109.111" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "heidi", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #28 ---
+ORIGINAL    : 2025-10-13T10:07:22Z [Note] User 'heidi' accessed dashboard from IP 25.98.202.225
+PREPROCESSED: z user 'heidi' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #29 ---
+ORIGINAL    : 2025-10-13T10:53:12Z  Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #30 ---
+ORIGINAL    : 2025-10-13T10:52:58Z [Note] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #31 ---
+ORIGINAL    : 2025-10-13T10:40:19Z [UserAction] User 'grace' accessed dashboard from IP 214.181.65.103
+PREPROCESSED: z user 'grace' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #32 ---
+ORIGINAL    : 2025-10-13T10:18:08Z  Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #33 ---
+ORIGINAL    : 2025-10-13T10:27:06Z [Note] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #34 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:29:06Z", "event": "LoginSuccess", "user": "eve", "ip": "9.121.24.27" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "eve", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #35 ---
+ORIGINAL    : 2025-10-13T10:49:46Z [INFO] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: info: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #36 ---
+ORIGINAL    : 2025-10-13T10:13:58Z [Activity] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #37 ---
+ORIGINAL    : 2025-10-13T10:35:31Z  User 'charlie' accessed dashboard from IP 97.246.138.32
+PREPROCESSED: z user 'charlie' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #38 ---
+ORIGINAL    : 2025-10-13T10:07:01Z  Order #68220 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #39 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:54:58Z", "event": "LoginSuccess", "user": "heidi", "ip": "232.10.195.242" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "heidi", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #40 ---
+ORIGINAL    : 2025-10-13T10:03:59Z [UserAction] Order #93004 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #41 ---
+ORIGINAL    : 2025-10-13T10:16:24Z [INFO] Order #85245 was confirmed and sent to shipping.
+PREPROCESSED: info: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #42 ---
+ORIGINAL    : 2025-10-13T10:52:55Z [Activity] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #43 ---
+ORIGINAL    : 2025-10-13T10:59:22Z [SystemLog] Session for user 'bob' extended by 15 minutes
+PREPROCESSED: z session for user 'bob' extended by 15 minutes
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #44 ---
+ORIGINAL    : 2025-10-13T10:05:00Z [INFO] User 'diana' accessed dashboard from IP 123.153.168.223
+PREPROCESSED: info: z user 'diana' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #45 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:18:37Z", "event": "LoginSuccess", "user": "bob", "ip": "84.197.243.26" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "bob", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #46 ---
+ORIGINAL    : 2025-10-13T10:11:02Z [SystemLog] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #47 ---
+ORIGINAL    : 2025-10-13T10:31:48Z  User 'grace' accessed dashboard from IP 243.215.214.188
+PREPROCESSED: z user 'grace' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #48 ---
+ORIGINAL    : 2025-10-13T10:36:57Z [SystemLog] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #49 ---
+ORIGINAL    : 2025-10-13T10:56:33Z [SystemLog] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #50 ---
+ORIGINAL    : 2025-10-13T10:35:21Z [INFO] Session for user 'diana' extended by 15 minutes
+PREPROCESSED: info: z session for user 'diana' extended by 15 minutes
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #51 ---
+ORIGINAL    : 2025-10-13T10:56:44Z [Note] User 'diana' accessed dashboard from IP 188.221.189.70
+PREPROCESSED: z user 'diana' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #52 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:42:59Z", "event": "LoginSuccess", "user": "alice", "ip": "80.37.142.69" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "alice", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #53 ---
+ORIGINAL    : 2025-10-13T10:10:32Z  Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #54 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:27:07Z", "event": "LoginSuccess", "user": "grace", "ip": "230.35.9.15" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "grace", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #55 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:03:43Z", "event": "LoginSuccess", "user": "frank", "ip": "173.255.50.152" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "frank", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #56 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:33:45Z", "event": "LoginSuccess", "user": "bob", "ip": "212.87.74.118" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "bob", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #57 ---
+ORIGINAL    : 2025-10-13T10:39:38Z  Session for user 'bob' extended by 15 minutes
+PREPROCESSED: z session for user 'bob' extended by 15 minutes
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #58 ---
+ORIGINAL    : 2025-10-13T10:12:11Z [Note] Order #53923 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #59 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:03:25Z", "event": "LoginSuccess", "user": "eve", "ip": "247.162.166.110" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "eve", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #60 ---
+ORIGINAL    : 2025-10-13T10:35:11Z [Activity] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #61 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:40:59Z", "event": "LoginSuccess", "user": "alice", "ip": "213.199.171.39" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "alice", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #62 ---
+ORIGINAL    : 2025-10-13T10:08:46Z [SystemLog] User 'frank' accessed dashboard from IP 1.12.66.40
+PREPROCESSED: z user 'frank' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #63 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:11:54Z", "event": "LoginSuccess", "user": "frank", "ip": "73.55.44.241" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "frank", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #64 ---
+ORIGINAL    : 2025-10-13T10:57:05Z [Activity] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #65 ---
+ORIGINAL    : 2025-10-13T10:24:11Z [SystemLog] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #66 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:46:16Z", "event": "LoginSuccess", "user": "charlie", "ip": "83.29.5.26" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "charlie", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #67 ---
+ORIGINAL    : 2025-10-13T10:02:46Z [INFO] Order #56632 was confirmed and sent to shipping.
+PREPROCESSED: info: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #68 ---
+ORIGINAL    : 2025-10-13T10:28:19Z [Activity] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #69 ---
+ORIGINAL    : 2025-10-13T10:30:43Z  Order #31965 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #70 ---
+ORIGINAL    : 2025-10-13T10:50:30Z [SystemLog] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #71 ---
+ORIGINAL    : 2025-10-13T10:38:44Z [Log] Order #23825 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #72 ---
+ORIGINAL    : 2025-10-13T10:44:32Z [INFO] Health check passed for service 'webapp'
+PREPROCESSED: info: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #73 ---
+ORIGINAL    : 2025-10-13T10:20:45Z [INFO] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: info: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #74 ---
+ORIGINAL    : 2025-10-13T10:47:47Z [Activity] User 'eve' accessed dashboard from IP 67.140.197.114
+PREPROCESSED: z user 'eve' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #75 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:35:51Z", "event": "LoginSuccess", "user": "charlie", "ip": "162.243.38.227" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "charlie", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #76 ---
+ORIGINAL    : 2025-10-13T10:12:39Z [UserAction] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #77 ---
+ORIGINAL    : 2025-10-13T10:40:36Z [Log] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #78 ---
+ORIGINAL    : 2025-10-13T10:56:51Z [UserAction] User 'heidi' accessed dashboard from IP 87.133.249.61
+PREPROCESSED: z user 'heidi' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #79 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:34:53Z", "event": "LoginSuccess", "user": "heidi", "ip": "138.214.176.39" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "heidi", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #80 ---
+ORIGINAL    : 2025-10-13T10:19:44Z [UserAction] User 'eve' accessed dashboard from IP 45.40.107.13
+PREPROCESSED: z user 'eve' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #81 ---
+ORIGINAL    : 2025-10-13T10:20:29Z  Order #89159 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #82 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:20:10Z", "event": "LoginSuccess", "user": "eve", "ip": "109.3.40.193" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "eve", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #83 ---
+ORIGINAL    : 2025-10-13T10:36:02Z [INFO] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: info: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #84 ---
+ORIGINAL    : 2025-10-13T10:22:24Z [Activity] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #85 ---
+ORIGINAL    : 2025-10-13T10:51:12Z [SystemLog] Order #75430 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #86 ---
+ORIGINAL    : 2025-10-13T10:06:41Z [Note] User 'charlie' accessed dashboard from IP 106.214.127.202
+PREPROCESSED: z user 'charlie' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #87 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:08:00Z", "event": "LoginSuccess", "user": "grace", "ip": "149.102.154.25" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "grace", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #88 ---
+ORIGINAL    : 2025-10-13T10:12:28Z [Log] Order #47948 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #89 ---
+ORIGINAL    : 2025-10-13T10:33:57Z [Log] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #90 ---
+ORIGINAL    : 2025-10-13T10:17:50Z [Activity] Health check passed for service 'webapp'
+PREPROCESSED: z health check passed for service 'webapp'
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #91 ---
+ORIGINAL    : 2025-10-13T10:16:40Z  User 'bob' accessed dashboard from IP 64.226.82.173
+PREPROCESSED: z user 'bob' accessed dashboard from ip <ip>
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #92 ---
+ORIGINAL    : 2025-10-13T10:14:02Z  Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #93 ---
+ORIGINAL    : 2025-10-13T10:28:31Z [Activity] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #94 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:02:34Z", "event": "LoginSuccess", "user": "eve", "ip": "32.241.252.114" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "eve", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #95 ---
+ORIGINAL    : 2025-10-13T10:19:23Z [Note] Session for user 'eve' extended by 15 minutes
+PREPROCESSED: z session for user 'eve' extended by 15 minutes
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #96 ---
+ORIGINAL    : 2025-10-13T10:40:32Z [Log] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #97 ---
+ORIGINAL    : 2025-10-13T10:55:50Z [UserAction] Order #56460 was confirmed and sent to shipping.
+PREPROCESSED: z order #<num> was confirmed and sent to shipping.
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #98 ---
+ORIGINAL    : 2025-10-13T10:48:32Z [Log] Session for user 'alice' extended by 15 minutes
+PREPROCESSED: z session for user 'alice' extended by 15 minutes
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #99 ---
+ORIGINAL    : 2025-10-13T10:11:40Z [Note] Scheduled job completed: cleanup_temp_files
+PREPROCESSED: z scheduled job completed: cleanup_temp_files
+CLUSTER     : -1
+STATUS      : Anomali
+
+--- Log #100 ---
+ORIGINAL    : { "timestamp": "2025-10-13T10:41:27Z", "event": "LoginSuccess", "user": "charlie", "ip": "84.68.75.197" }
+PREPROCESSED: { "timestamp": "z", "event": "loginsuccess", "user": "charlie", "ip": "<ip>" }
+CLUSTER     : -1
+STATUS      : Anomali
+
+
+====================================================================================================
+SUMMARY
+====================================================================================================
+Total logs processed : 100
+Total logs skipped   : 0
+Total anomalies      : 100
+Total normal logs    : 0
+
+Distribusi Cluster:
+  - Anomali (Cluster -1): 100 logs
