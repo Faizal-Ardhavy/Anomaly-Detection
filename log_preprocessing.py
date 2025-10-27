@@ -399,7 +399,7 @@ class LogPreprocessor:
 #           BATCH PROCESSING SEMUA FILE LOG (OPTIMIZED WITH MULTIPROCESSING)
 # ==============================================================================
 def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "../after_PreProcessed_Dataset", 
-                          num_workers: int = None, chunk_size: int = 10000):
+                          num_workers: int = None, chunk_size: int = 10000, max_file_size_gb: float = None):
     """
     Process semua file .log di dataset directory dan simpan hasilnya
     OPTIMIZED: Menggunakan multiprocessing untuk file besar
@@ -409,12 +409,14 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
         output_dir: Path ke folder output untuk hasil preprocessing
         num_workers: Jumlah CPU cores untuk parallel processing (default: CPU count - 1)
         chunk_size: Ukuran chunk untuk processing (default: 10000 lines per chunk)
+        max_file_size_gb: Skip files larger than this (default: None = process all)
     """
     import os
     from pathlib import Path
     from multiprocessing import Pool, cpu_count
     from tqdm import tqdm
     import time
+    import gc
     
     # Create output directory if not exists
     output_path = Path(output_dir)
@@ -434,12 +436,16 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
     print(f"\n✓ Ditemukan {len(log_files)} file .log")
     print(f"✓ Output akan disimpan di: {output_dir}")
     print(f"✓ Menggunakan {num_workers} CPU cores untuk parallel processing")
-    print(f"✓ Chunk size: {chunk_size:,} lines per batch\n")
+    print(f"✓ Chunk size: {chunk_size:,} lines per batch")
+    if max_file_size_gb:
+        print(f"✓ Max file size: {max_file_size_gb:.1f} GB (larger files will be skipped)")
+    print()
     
     # Statistics
     total_files_processed = 0
     total_logs_processed = 0
     failed_files = []
+    skipped_files = []
     start_time = time.time()
     
     # Process each log file
@@ -455,15 +461,28 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
             # Get file size
             file_size = log_file.stat().st_size
             file_size_mb = file_size / (1024 * 1024)
+            file_size_gb = file_size / (1024 * 1024 * 1024)
             
             print(f"\n[{i}/{len(log_files)}] Processing: {rel_path}")
-            print(f"    File size: {file_size_mb:.2f} MB")
+            print(f"    File size: {file_size_gb:.2f} GB ({file_size_mb:.0f} MB)")
             print(f"    Output: {output_filename}")
+            
+            # Skip if file too large
+            if max_file_size_gb and file_size_gb > max_file_size_gb:
+                print(f"    ⚠️  SKIPPED: File too large (> {max_file_size_gb:.1f} GB)")
+                skipped_files.append((str(rel_path), f"File too large: {file_size_gb:.2f} GB"))
+                continue
+            
+            # Adjust chunk size for very large files
+            actual_chunk_size = chunk_size
+            if file_size_gb > 10:
+                actual_chunk_size = max(chunk_size, 50000)  # Larger chunks for huge files
+                print(f"    📦 Adjusted chunk size to {actual_chunk_size:,} for large file")
             
             # Process file with chunking and multiprocessing
             if file_size_mb > 100:  # Use multiprocessing for files > 100MB
                 print(f"    ⚡ Using multiprocessing (file > 100MB)")
-                preprocessed = process_large_file_parallel(log_file, num_workers, chunk_size)
+                preprocessed = process_large_file_parallel(log_file, num_workers, actual_chunk_size)
             else:
                 print(f"    📄 Using single process (file < 100MB)")
                 preprocessed = process_small_file(log_file)
@@ -472,12 +491,12 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
             
             # Save to output file (chunked writing for large files)
             print(f"    💾 Saving to file...")
+            write_chunk_size = 50000  # Write 50K lines at a time
             with open(output_file_path, 'w', encoding='utf-8') as f:
-                # Write in chunks to avoid memory issues
-                for idx in range(0, len(preprocessed), chunk_size):
-                    chunk = preprocessed[idx:idx + chunk_size]
+                for idx in range(0, len(preprocessed), write_chunk_size):
+                    chunk = preprocessed[idx:idx + write_chunk_size]
                     f.write('\n'.join(chunk))
-                    if idx + chunk_size < len(preprocessed):
+                    if idx + write_chunk_size < len(preprocessed):
                         f.write('\n')
             
             print(f"    ✓ Saved to: {output_file_path}")
@@ -485,14 +504,29 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
             total_files_processed += 1
             total_logs_processed += len(preprocessed)
             
+            # Force garbage collection after each file
+            del preprocessed
+            gc.collect()
+            
         except KeyboardInterrupt:
             print(f"\n⚠ Process interrupted by user!")
             break
+        except MemoryError:
+            print(f"    ✗ MEMORY ERROR: File too large for available RAM")
+            print(f"    💡 Suggestions:")
+            print(f"       - Increase chunk_size (current: {actual_chunk_size:,})")
+            print(f"       - Reduce num_workers (current: {num_workers})")
+            print(f"       - Close other applications")
+            print(f"       - Process this file separately")
+            failed_files.append((str(rel_path), "MemoryError - File too large"))
+            gc.collect()
+            continue
         except Exception as e:
             print(f"    ✗ ERROR: {e}")
             import traceback
             traceback.print_exc()
             failed_files.append((str(rel_path), str(e)))
+            gc.collect()
             continue
     
     # Calculate elapsed time
@@ -506,7 +540,15 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
     print(f"✓ Total log lines processed: {total_logs_processed:,}")
     print(f"✓ Output directory: {output_dir}")
     print(f"✓ Time elapsed: {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
-    print(f"✓ Average speed: {total_logs_processed/(elapsed_time+0.001):.0f} logs/second")
+    if total_logs_processed > 0:
+        print(f"✓ Average speed: {total_logs_processed/(elapsed_time+0.001):.0f} logs/second")
+    
+    if skipped_files:
+        print(f"\n⏭️  Skipped files: {len(skipped_files)}")
+        for file, reason in skipped_files[:5]:
+            print(f"  - {file}: {reason}")
+        if len(skipped_files) > 5:
+            print(f"  ... and {len(skipped_files)-5} more")
     
     if failed_files:
         print(f"\n⚠ Failed files: {len(failed_files)}")
@@ -541,49 +583,106 @@ def process_chunk(args):
 
 
 def process_large_file_parallel(log_file, num_workers, chunk_size):
-    """Process large file (>100MB) with multiprocessing"""
+    """Process large file (>100MB) with multiprocessing - MEMORY SAFE"""
     from multiprocessing import Pool
     from tqdm import tqdm
+    import gc
     
-    # Read file in chunks to avoid loading entire file into memory
-    print(f"    📖 Reading file in chunks...")
-    chunks = []
-    chunk_buffer = []
+    # STREAMING PROCESSING - Tidak load seluruh file ke memory!
+    print(f"    📖 Reading file with streaming (memory-safe)...")
     
-    with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                chunk_buffer.append(line)
-                
-                if len(chunk_buffer) >= chunk_size:
-                    chunks.append((chunk_buffer, len(chunks)))
-                    chunk_buffer = []
+    preprocessed_file = str(log_file).replace('.log', '_preprocessed_temp.txt')
+    total_lines = 0
+    chunks_processed = 0
+    
+    try:
+        # First pass: Count lines for progress bar (optional, bisa di-skip untuk file SANGAT besar)
+        # Skip counting untuk file > 1GB untuk hemat waktu
+        file_size_gb = log_file.stat().st_size / (1024**3)
         
-        # Add remaining lines
-        if chunk_buffer:
-            chunks.append((chunk_buffer, len(chunks)))
-    
-    print(f"    ✓ Created {len(chunks)} chunks")
-    print(f"    ⚙️  Processing with {num_workers} workers...")
-    
-    # Process chunks in parallel
-    preprocessed_results = []
-    with Pool(processes=num_workers) as pool:
-        # Use imap_unordered for better performance with progress bar
-        results = list(tqdm(
-            pool.imap_unordered(process_chunk, chunks),
-            total=len(chunks),
-            desc="    Processing chunks",
-            unit="chunk"
-        ))
-    
-    # Flatten results (maintain order by chunk_id if needed)
-    preprocessed = []
-    for result in results:
-        preprocessed.extend(result)
-    
-    return preprocessed
+        if file_size_gb < 1:
+            print(f"    📊 Counting lines...")
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                total_lines = sum(1 for line in f if line.strip())
+            print(f"    ✓ Total lines: {total_lines:,}")
+        else:
+            print(f"    ⚡ Skipping line count (file too large: {file_size_gb:.2f} GB)")
+            total_lines = None
+        
+        # Process file in streaming mode
+        print(f"    ⚙️  Processing with {num_workers} workers (streaming mode)...")
+        
+        chunk_buffer = []
+        all_results = []
+        chunks_count = 0
+        
+        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+            with Pool(processes=num_workers) as pool:
+                # Create progress bar
+                if total_lines:
+                    pbar = tqdm(total=total_lines, desc="    Processing lines", unit="lines")
+                else:
+                    pbar = tqdm(desc="    Processing lines", unit="lines")
+                
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if line:
+                        chunk_buffer.append(line)
+                        
+                        # When buffer reaches chunk_size, process it
+                        if len(chunk_buffer) >= chunk_size:
+                            # Submit chunk to pool
+                            result = pool.apply_async(process_chunk, ((chunk_buffer.copy(), chunks_count),))
+                            all_results.append(result)
+                            chunks_count += 1
+                            
+                            # Update progress
+                            pbar.update(len(chunk_buffer))
+                            
+                            # Clear buffer
+                            chunk_buffer = []
+                            
+                            # Limit number of pending tasks to avoid memory buildup
+                            if len(all_results) >= num_workers * 2:
+                                # Get results from completed tasks
+                                completed = []
+                                for idx, res in enumerate(all_results):
+                                    if res.ready():
+                                        completed.append(idx)
+                                
+                                # Remove completed from list
+                                for idx in reversed(completed):
+                                    all_results.pop(idx)
+                                
+                                # Force garbage collection
+                                gc.collect()
+                
+                # Process remaining lines in buffer
+                if chunk_buffer:
+                    result = pool.apply_async(process_chunk, ((chunk_buffer.copy(), chunks_count),))
+                    all_results.append(result)
+                    pbar.update(len(chunk_buffer))
+                    chunks_count += 1
+                
+                pbar.close()
+                
+                # Wait for all remaining tasks
+                print(f"    ⏳ Waiting for all {len(all_results)} remaining chunks...")
+                final_results = []
+                for res in tqdm(all_results, desc="    Collecting results", unit="chunk"):
+                    final_results.append(res.get())
+                
+                # Flatten results
+                preprocessed = []
+                for result in final_results:
+                    preprocessed.extend(result)
+        
+        print(f"    ✓ Processing complete: {len(preprocessed):,} lines")
+        return preprocessed
+        
+    except Exception as e:
+        print(f"    ✗ Error during parallel processing: {e}")
+        raise
 
 
 # ==============================================================================
