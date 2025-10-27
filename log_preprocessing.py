@@ -19,11 +19,15 @@ class LogPreprocessor:
             # Timestamp patterns (berbagai format dari berbagai jenis log)
             'timestamp': [
                 r'\[.*?\]',  # [Thu Jun 09 06:07:04 2005]
-                r'\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[\.\d+]*',  # 2005-06-09 06:07:04
-                r'\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}',  # 09/Jun/2005:06:07:04
+                r'\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[\.\d+]*',  # 2005-06-09 06:07:04 (Windows, OpenStack, Hadoop)
+                r'\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}',  # 09/Jun/2005:06:07:04 (Apache)
                 r'\d{8}-\d{1,2}:\d{1,2}:\d{1,2}:\d{1,3}\|',  # 20171224-20:11:16:931| (HealthApp)
-                r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b',  # Feb 24 11:16:38 (Linux/SSH)
+                r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b',  # Feb 24 11:16:38 (Linux/SSH/Mac)
                 r'\[\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\]',  # [10.30 17:37:51] (Proxifier)
+                r'\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+',  # 12-17 19:31:36.263 (Android)
+                r'\d{6}\s+\d{6}',  # 081109 203518 (HDFS)
+                r'\d{10}\s+\d{4}\.\d{2}\.\d{2}',  # 1117838570 2005.06.03 (BGL)
+                r'\d{4}-\d{2}-\d{2}-\d{2}\.\d{2}\.\d{2}\.\d+',  # 2005-06-03-15.42.50.363779 (BGL)
             ],
             # IP Address patterns
             'ip': [
@@ -56,13 +60,16 @@ class LogPreprocessor:
             'hex': [
                 r'0x[0-9a-fA-F]+',
             ],
-            # Process IDs, UIDs, GIDs, TTY
+            # Process IDs, UIDs, GIDs, TTY, Thread IDs
             'ids': [
                 r'\b(?:pid|uid|gid)[\s:=]+\d+',
                 r'\beuid=\d+',
                 r'\bchild\s+\d+\b',
                 r'\[\d{4,}\]',  # [6248], [30002312] (process IDs in brackets)
                 r'tty=\w+',  # tty=NODEVssh
+                r'\b\d{1,5}\s+\d{1,5}\s+[IWE]\b',  # Android: 1795  1825 I (PID TID Level)
+                r'\bthread_\d+\b',  # Thread IDs
+                r'\[\w+\]',  # [main], [Thread-1] - thread names in Java logs
             ],
             # Program/Service names with PID
             'program': [
@@ -83,6 +90,49 @@ class LogPreprocessor:
                 r'=\d+##\d+##\d+##\d+##\d+##\d+',  # =1514117400000##11414##649730##...
                 r'totalCalories=\d+',
                 r'totalAltitude=\d+',
+            ],
+            # Request IDs, UUIDs, GUIDs (OpenStack, distributed systems)
+            'request_ids': [
+                r'req-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',  # OpenStack request IDs
+                r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b',  # UUIDs/GUIDs
+                r'\b[0-9a-f]{32}\b',  # 32-char hex strings (tenant IDs, tokens)
+            ],
+            # Application/Container IDs (Hadoop, YARN)
+            'app_container_ids': [
+                r'application_\d{13}_\d{4}',  # application_1445062781478_0011
+                r'container_\d{13}_\d{4}_\d{2}_\d{6}',  # container_1445182159119_0019_02_000015
+                r'appattempt_\d{13}_\d{4}_\d{6}',  # appattempt_1445062781478_0011_000001
+                r'attempt_\d{13}_\d{4}_[mr]_\d{6}_\d+',  # attempt IDs
+            ],
+            # Block IDs (HDFS)
+            'block_ids': [
+                r'blk_-?\d+',  # blk_-1608999687919862906
+            ],
+            # Component/Package names (Java, Python packages)
+            'components': [
+                r'\b(?:org|com|net|edu)\.[\w.]+\.[\w.]+',  # org.apache.hadoop.mapreduce.v2.app.MRAppMaster
+            ],
+            # Node/Location identifiers (BGL supercomputer)
+            'node_locations': [
+                r'R\d{2}-M\d+-N\d+-C:J\d{2}-U\d{2}',  # R02-M1-N0-C:J12-U11
+            ],
+            # Windows-specific patterns
+            'windows': [
+                r'@0x[0-9a-f]+',  # @0x7fed806eb5d (stack addresses)
+                r'C:\\Windows\\[\w\\.-]+',  # C:\Windows\winsxs\...
+                r'v\d+\.\d+\.\d+\.\d+',  # v6.1.7601.23505 (version numbers)
+            ],
+            # Android-specific patterns
+            'android': [
+                r'\b[A-Z][a-zA-Z]+\$[A-Z][a-zA-Z]+',  # DataNode$DataXceiver, DisplayPowerController
+                r'action:[\w.]+',  # action:android.com.huawei.bone.NOTIFY_SPORT_DATA
+            ],
+            # HTTP status and metrics
+            'http_metrics': [
+                r'status:\s+\d{3}',  # status: 200
+                r'len:\s+\d+',  # len: 1893
+                r'time:\s+[\d.]+',  # time: 0.2477829
+                r'HTTP/\d\.\d',  # HTTP/1.1
             ],
         }
     
@@ -145,6 +195,55 @@ class LogPreprocessor:
         """Normalisasi statistik HealthApp"""
         for pattern in self.patterns['healthapp_stats']:
             text = re.sub(pattern, '<STATS>', text)
+        return text
+    
+    def remove_request_ids(self, text: str) -> str:
+        """Hapus request IDs, UUIDs, GUIDs (OpenStack, distributed systems)"""
+        for pattern in self.patterns['request_ids']:
+            text = re.sub(pattern, '<REQUEST_ID>', text)
+        return text
+    
+    def remove_app_container_ids(self, text: str) -> str:
+        """Hapus application dan container IDs (Hadoop, YARN)"""
+        for pattern in self.patterns['app_container_ids']:
+            text = re.sub(pattern, '<APP_ID>', text)
+        return text
+    
+    def remove_block_ids(self, text: str) -> str:
+        """Hapus block IDs (HDFS)"""
+        for pattern in self.patterns['block_ids']:
+            text = re.sub(pattern, '<BLOCK_ID>', text)
+        return text
+    
+    def normalize_components(self, text: str) -> str:
+        """Normalisasi component/package names (keep base package only)"""
+        # Keep only the first 2-3 parts of package names for context
+        # e.g., org.apache.hadoop.mapreduce.v2.app.MRAppMaster -> org.apache.hadoop
+        text = re.sub(r'\b((?:org|com|net|edu)\.[\w]+\.[\w]+)\.[\w.]+', r'\1', text)
+        return text
+    
+    def remove_node_locations(self, text: str) -> str:
+        """Hapus node/location identifiers (BGL supercomputer)"""
+        for pattern in self.patterns['node_locations']:
+            text = re.sub(pattern, '<NODE>', text)
+        return text
+    
+    def normalize_windows_specific(self, text: str) -> str:
+        """Normalisasi Windows-specific patterns"""
+        for pattern in self.patterns['windows']:
+            text = re.sub(pattern, '<WIN_SPECIFIC>', text)
+        return text
+    
+    def normalize_android_specific(self, text: str) -> str:
+        """Normalisasi Android-specific patterns"""
+        for pattern in self.patterns['android']:
+            text = re.sub(pattern, '<ANDROID_SPECIFIC>', text)
+        return text
+    
+    def normalize_http_metrics(self, text: str) -> str:
+        """Normalisasi HTTP status codes dan metrics"""
+        for pattern in self.patterns['http_metrics']:
+            text = re.sub(pattern, '<METRIC>', text)
         return text
     
     def remove_process_ids(self, text: str) -> str:
@@ -240,19 +339,43 @@ class LogPreprocessor:
         # 12. Normalisasi HealthApp statistics
         text = self.normalize_healthapp_stats(text)
         
-        # 13. Normalisasi angka besar
+        # 13. Hapus request IDs, UUIDs (OpenStack, distributed systems)
+        text = self.remove_request_ids(text)
+        
+        # 14. Hapus application/container IDs (Hadoop, YARN)
+        text = self.remove_app_container_ids(text)
+        
+        # 15. Hapus block IDs (HDFS)
+        text = self.remove_block_ids(text)
+        
+        # 16. Normalisasi component/package names
+        text = self.normalize_components(text)
+        
+        # 17. Hapus node/location identifiers (BGL)
+        text = self.remove_node_locations(text)
+        
+        # 18. Normalisasi Windows-specific patterns
+        text = self.normalize_windows_specific(text)
+        
+        # 19. Normalisasi Android-specific patterns
+        text = self.normalize_android_specific(text)
+        
+        # 20. Normalisasi HTTP metrics
+        text = self.normalize_http_metrics(text)
+        
+        # 21. Normalisasi angka besar
         text = self.normalize_numbers(text)
         
-        # 14. Hapus special characters
+        # 22. Hapus special characters
         text = self.remove_special_chars(text)
         
-        # 15. Lowercase
+        # 23. Lowercase
         text = self.lowercase(text)
         
-        # 16. Clean extra spaces
+        # 24. Clean extra spaces
         text = self.remove_extra_spaces(text)
         
-        # 17. Optional: tambahkan log level di awal
+        # 25. Optional: tambahkan log level di awal
         if keep_log_level and log_level != 'unknown':
             text = f"{log_level}: {text}"
         
@@ -273,34 +396,166 @@ class LogPreprocessor:
 
 
 # ==============================================================================
+#           BATCH PROCESSING SEMUA FILE LOG
+# ==============================================================================
+def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "../after_PreProcessed_Dataset"):
+    """
+    Process semua file .log di dataset directory dan simpan hasilnya
+    
+    Args:
+        dataset_dir: Path ke folder dataset
+        output_dir: Path ke folder output untuk hasil preprocessing
+    """
+    import os
+    from pathlib import Path
+    
+    # Create output directory if not exists
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Initialize preprocessor
+    preprocessor = LogPreprocessor()
+    
+    # Find all .log files in dataset directory (including subdirectories)
+    dataset_path = Path(dataset_dir)
+    log_files = list(dataset_path.rglob("*.log"))
+    
+    print("="*100)
+    print(f"BATCH PROCESSING - SEMUA FILE LOG DI {dataset_dir}")
+    print("="*100)
+    print(f"\n✓ Ditemukan {len(log_files)} file .log")
+    print(f"✓ Output akan disimpan di: {output_dir}\n")
+    
+    # Statistics
+    total_files_processed = 0
+    total_logs_processed = 0
+    failed_files = []
+    
+    # Process each log file
+    for i, log_file in enumerate(log_files, 1):
+        try:
+            # Get relative path for better naming
+            rel_path = log_file.relative_to(dataset_path)
+            
+            # Create output filename
+            # Replace path separators with underscores for flat structure
+            output_filename = f"AfterPreProcessed_{str(rel_path).replace(os.sep, '_').replace('.log', '.txt')}"
+            output_file_path = output_path / output_filename
+            
+            print(f"\n[{i}/{len(log_files)}] Processing: {rel_path}")
+            print(f"    Output: {output_filename}")
+            
+            # Read log file
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                raw_logs = f.readlines()
+            
+            print(f"    ✓ Loaded {len(raw_logs)} lines")
+            
+            # Preprocess
+            preprocessed = preprocessor.preprocess_batch(
+                [line.strip() for line in raw_logs if line.strip()],
+                keep_log_level=True
+            )
+            
+            print(f"    ✓ Preprocessed {len(preprocessed)} logs")
+            
+            # Save to output file
+            with open(output_file_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(preprocessed))
+            
+            print(f"    ✓ Saved to: {output_file_path}")
+            
+            total_files_processed += 1
+            total_logs_processed += len(preprocessed)
+            
+        except Exception as e:
+            print(f"    ✗ ERROR: {e}")
+            failed_files.append((str(rel_path), str(e)))
+            continue
+    
+    # Summary
+    print("\n" + "="*100)
+    print("📊 SUMMARY")
+    print("="*100)
+    print(f"\n✓ Total files processed: {total_files_processed}/{len(log_files)}")
+    print(f"✓ Total log lines processed: {total_logs_processed:,}")
+    print(f"✓ Output directory: {output_dir}")
+    
+    if failed_files:
+        print(f"\n⚠ Failed files: {len(failed_files)}")
+        for file, error in failed_files:
+            print(f"  - {file}: {error}")
+    
+    print("\n" + "="*100)
+    print("✅ BATCH PROCESSING SELESAI!")
+    print("="*100)
+
+
+# ==============================================================================
 #           DEMONSTRASI PENGGUNAAN
 # ==============================================================================
 if __name__ == "__main__":
-    print("="*80)
-    print("DEMONSTRASI LOG PREPROCESSING - MULTI-TYPE LOGS")
-    print("="*80)
+    import sys
+    
+    # Check if user wants to process all files or just demo
+    if len(sys.argv) > 1 and sys.argv[1] == "--process-all":
+        # Process all log files in dataset
+        process_all_log_files(
+            dataset_dir="../dataset",
+            output_dir="../after_PreProcessed_Dataset"
+        )
+    else:
+        # Demo mode - show examples
+        print("="*80)
+        print("DEMONSTRASI LOG PREPROCESSING - MULTI-TYPE LOGS (17 JENIS LOG)")
+        print("="*80)
+        print("\nTip: Jalankan dengan '--process-all' untuk memproses semua file log")
+        print("     python log_preprocessing.py --process-all\n")
+        print("="*80)
     
     # Contoh log lines dari BERBAGAI JENIS LOG
     sample_logs = [
-        # Apache logs
+        # 1. Apache logs
         "[Thu Jun 09 06:07:04 2005] [notice] LDAP: Built with OpenLDAP LDAP SDK",
-        "[Thu Jun 09 06:07:05 2005] [error] env.createBean2(): Factory error creating channel.jni:jni ( channel.jni, jni)",
         "[Thu Jun 09 07:11:21 2005] [error] [client 204.100.200.22] Directory index forbidden by rule: /var/www/html/",
         
-        # Proxifier logs
+        # 2. Proxifier logs
         "[10.30 17:37:51] chrome.exe - proxy.cse.cuhk.edu.hk:5070 open through proxy proxy.cse.cuhk.edu.hk:5070 HTTPS",
         "[10.30 17:37:53] chrome.exe - proxy.cse.cuhk.edu.hk:5070 close, 3755 bytes (3.66 KB) sent, 1776 bytes (1.73 KB) received, lifetime 00:02",
-        "[10.30 17:37:54] chrome.exe - proxy.cse.cuhk.edu.hk:5070 close, 529 bytes sent, 43281385 bytes (41.2 MB) received, lifetime 00:42",
         
-        # HealthApp logs
+        # 3. HealthApp logs
         "20171224-20:11:16:931|Step_SPUtils|30002312|setTodayTotalDetailSteps=1514117400000##11414##649730##8661##25953##16727998",
         "20171224-20:11:16:938|Step_ExtSDM|30002312|calculateCaloriesWithCache totalCalories=178786",
-        "20171224-20:11:16:944|Step_StandReportReceiver|30002312|REPORT : 11414 8149 244487 210",
         
-        # Linux SSH/FTP logs
+        # 4. Linux SSH/FTP logs
         "Feb 24 11:16:38 combo sshd(pam_unix)[6248]: authentication failure; logname= uid=0 euid=0 tty=NODEVssh ruser= rhost=83.228.113.166  user=root",
         "Feb 24 11:57:02 combo ftpd[6265]: connection from 89.52.108.44 (P6c2c.p.pppool.de) at Fri Feb 24 11:57:02 2006",
-        "Feb 25 04:02:59 combo telnetd[6464]: ttloop:  peer died: Invalid or incomplete multibyte or wide character",
+        
+        # 5. Android logs
+        "12-17 19:31:36.263  1795  1825 I PowerManager_screenOn: DisplayPowerStatesetColorFadeLevel: level=1.0",
+        "12-17 19:31:36.264  1795  1825 D DisplayPowerController: Animating brightness: target=21, rate=40",
+        
+        # 6. Windows logs
+        "2016-09-28 04:30:30, Info                  CBS    Starting TrustedInstaller initialization.",
+        "2016-09-28 04:30:31, Info                  CSI    00000001@2016/9/27:20:30:31.455 WcpInitialize (wcp.dll version 0.0.0.6) called (stack @0x7fed806eb5d @0x7fef9fb9b6d)",
+        
+        # 7. Mac logs
+        "Jul  1 09:00:55 calvisitor-10-105-160-95 kernel[0]: AppleThunderboltNHIType2::prePCIWake - power up complete - took 2 us",
+        "Jul  1 09:00:55 calvisitor-10-105-160-95 kernel[0]: AirPort: Link Down on awdl0. Reason 1 (Unspecified).",
+        
+        # 8. BGL (Blue Gene/L supercomputer) logs
+        "- 1117838570 2005.06.03 R02-M1-N0-C:J12-U11 2005-06-03-15.42.50.363779 R02-M1-N0-C:J12-U11 RAS KERNEL INFO instruction cache parity error corrected",
+        
+        # 9. HDFS logs
+        "081109 203518 143 INFO dfs.DataNode$DataXceiver: Receiving block blk_-1608999687919862906 src: /10.250.19.102:54106 dest: /10.250.19.102:50010",
+        "081109 203519 145 INFO dfs.DataNode$PacketResponder: PacketResponder 1 for block blk_-1608999687919862906 terminating",
+        
+        # 10. OpenStack logs
+        "nova-api.log.1.2017-05-16_13:53:08 2017-05-16 00:00:00.008 25746 INFO nova.osapi_compute.wsgi.server [req-38101a0b-2096-447d-96ea-a692162415ae 113d3a99c3da401fbd62cc2caa5b96d2 54fadb412c4e40cdbaed9335e4c35a9e - - -] 10.11.10.1 \"GET /v2/54fadb412c4e40cdbaed9335e4c35a9e/servers/detail HTTP/1.1\" status: 200 len: 1893 time: 0.2477829",
+        
+        # 11. Hadoop/YARN logs
+        "2015-10-17 15:37:56,547 INFO [main] org.apache.hadoop.mapreduce.v2.app.MRAppMaster: Created MRAppMaster for application appattempt_1445062781478_0011_000001",
+        "2015-10-17 15:37:56,900 INFO [main] org.apache.hadoop.mapreduce.v2.app.MRAppMaster: Kind: YARN_AM_RM_TOKEN, Service: , Ident: (appAttemptId { application_id { id: 11 cluster_timestamp: 1445062781478 } attemptId: 1 } keyId: 471522253)",
     ]
     
     # Inisialisasi preprocessor
@@ -325,61 +580,9 @@ if __name__ == "__main__":
     preprocessed_logs = preprocessor.preprocess_batch(sample_logs)
     
     print(f"\nTotal log diproses: {len(preprocessed_logs)}")
-    print("\nHasil preprocessing:")
-    for i, log in enumerate(preprocessed_logs, 1):
+    print("\nHasil preprocessing (5 pertama):")
+    for i, log in enumerate(preprocessed_logs[:5], 1):
         print(f"{i}. {log}")
-    
-    # Save hasil preprocessing
-    print("\n" + "="*80)
-    print("SIMPAN HASIL PREPROCESSING")
-    print("="*80)
-    
-    # Contoh: load dari file gabungan
-    try:
-        log_file = "../dataset/apache+proxifier+healthapp+mac+ssh+linux.log"
-        print(f"Membaca file: {log_file}")
-        
-        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-            raw_logs = f.readlines()
-        
-        print(f"Total log lines: {len(raw_logs)}")
-        
-        print("Melakukan preprocessing...")
-        size = len(raw_logs)
-        preprocessed = preprocessor.preprocess_batch(
-            [line.strip() for line in raw_logs[:size] if line.strip()],
-            keep_log_level=True
-        )
-        
-        # Save to file
-        output_file = "combined_logs_preprocessed.txt"
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(preprocessed))
-        
-        print(f"[OK] Hasil disimpan ke: {output_file}")
-        print(f"[OK] Total log diproses: {len(preprocessed)}")
-        
-        # Show statistics
-        print("\n📊 STATISTIK PREPROCESSING:")
-        log_levels = {}
-        for log in preprocessed:
-            if log.startswith('error:'):
-                log_levels['error'] = log_levels.get('error', 0) + 1
-            elif log.startswith('notice:'):
-                log_levels['notice'] = log_levels.get('notice', 0) + 1
-            elif log.startswith('warning:'):
-                log_levels['warning'] = log_levels.get('warning', 0) + 1
-            elif log.startswith('info:'):
-                log_levels['info'] = log_levels.get('info', 0) + 1
-            else:
-                log_levels['other'] = log_levels.get('other', 0) + 1
-        
-        for level, count in sorted(log_levels.items()):
-            print(f"  - {level.upper()}: {count} logs")
-        
-    except FileNotFoundError:
-        print(f"⚠ File {log_file} tidak ditemukan")
-        print("Silakan sesuaikan path file")
     
     print("\n" + "="*80)
     print("💡 KESIMPULAN:")
@@ -388,20 +591,49 @@ if __name__ == "__main__":
     Preprocessing teks log SANGAT PENTING karena:
     
     ✅ Menghilangkan noise (timestamp, IP, path spesifik, PIDs, sizes)
-    ✅ Menormalisasi berbagai format log (Apache, Proxifier, HealthApp, Linux/SSH)
+    ✅ Menormalisasi 17 JENIS LOG BERBEDA:
+       1. Apache Web Server          10. Thunderbird Email Server
+       2. Proxifier Proxy Logs        11. Zookeeper Coordination
+       3. HealthApp Mobile Logs       12-14. OpenStack Cloud (3 variants)
+       4. Linux/SSH/FTP System Logs   15. SSH Authentication
+       5. Android Mobile Logs         16. Windows System Logs
+       6. Mac/macOS Kernel Logs       17. Hadoop/YARN Container Logs
+       7. BGL Supercomputer Logs
+       8. HDFS Distributed Storage
+       9. HPC Logs
+    
     ✅ BERT bisa fokus pada pola semantik yang benar
     ✅ Log yang mirip akan punya embedding yang mirip
     ✅ Clustering akan lebih akurat dan robust
     
-    Preprocessing yang dilakukan:
-    - Hapus timestamp (berbagai format)
+    Preprocessing yang dilakukan (25 tahap):
+    - Hapus timestamp (10 format berbeda)
     - Normalisasi IP, hostname, domain
     - Normalisasi file paths
-    - Hapus process IDs, UIDs, PIDs
+    - Hapus process IDs, UIDs, PIDs, Thread IDs
     - Normalisasi data sizes (bytes, KB, MB)
     - Normalisasi durations/lifetimes
     - Normalisasi statistik aplikasi
+    - Hapus request IDs, UUIDs, GUIDs (OpenStack)
+    - Hapus application/container IDs (Hadoop/YARN)
+    - Hapus block IDs (HDFS)
+    - Normalisasi package names (Java/Python)
+    - Hapus node locations (BGL supercomputer)
+    - Normalisasi Windows-specific patterns
+    - Normalisasi Android-specific patterns
+    - Normalisasi HTTP metrics
     - Lowercase untuk konsistensi
+    
+    🚀 CARA PENGGUNAAN:
+    
+    1. Demo mode (tampilkan contoh):
+       python log_preprocessing.py
+    
+    2. Process SEMUA file log di dataset:
+       python log_preprocessing.py --process-all
+       
+       Akan memproses semua .log files di ../dataset dan menyimpan ke:
+       ../after_PreProcessed_Dataset/AfterPreProcessed_namafile.txt
     
     Gunakan log yang sudah dipreprocessing untuk:
     1. Generate BERT embeddings (bert.py)
