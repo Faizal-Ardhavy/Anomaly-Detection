@@ -1,17 +1,19 @@
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import normalize
+from joblib import Parallel, delayed
+matplotlib.use('Agg')  # supaya gak buka window GUI
 import random
+
 
 # ==============================================================================
 #           1. PEMUATAN DAN PERSIAPAN DATA
 # ==============================================================================
 try:
-    apache_vectors = np.load('apache_embeddings.npy')
-    proxifier_vectors = np.load('proxifier_embeddings.npy')
-    print("Berhasil memuat 'apache_embeddings.npy' dan 'proxifier_embeddings.npy'.")
-    semantic_vectors = np.vstack([apache_vectors, proxifier_vectors])
+    semantic_vectors = np.load('combined_embeddings.npy')
+    print("Berhasil memuat 'combined_embeddings.npy'.")
 except FileNotFoundError:
     print("File .npy tidak ditemukan. Membuat data dummy untuk demonstrasi.")
     cluster1 = np.random.rand(500, 768) + 0.5
@@ -35,19 +37,34 @@ print("Ukuran cluster untuk k=2:")
 for cluster_id, size in zip(unique_clusters, counts):
     print(f"   - Cluster {cluster_id}: {size} anggota")
 
-# ==============================================================================
-#           3. EKSPERIMEN 1: MENENTUKAN K DENGAN JARAK EUCLIDEAN
-# ==============================================================================
-print("\n--- Eksperimen 1: Menentukan K Optimal dengan Jarak Euclidean (Standar) ---")
-wcss_euclidean = []
-possible_k = range(2, 21) # Rentang k dari 2 hingga 20
 
-for k in possible_k:
+# Data vektor semantik kamu
+# pastikan sudah ada: semantic_vectors = np.load("combined_embeddings.npy")
+
+# ===============================
+# PARAMETER EKSPERIMEN
+# ===============================
+possible_k = range(2, 21)
+n_jobs = 2  # gunakan semua core CPU
+
+# ===================================================================
+# 1️⃣  Eksperimen 1 - Euclidean (standar)
+# ===================================================================
+def compute_wcss_euclidean(k, X):
     kmeans = KMeans(n_clusters=k, init='k-means++', random_state=42, n_init=10)
-    kmeans.fit(semantic_vectors)
-    wcss_euclidean.append(kmeans.inertia_) # .inertia_ adalah WCSS untuk Euclidean
+    kmeans.fit(X)
+    return k, kmeans.inertia_
 
-# Plot grafik Elbow untuk Jarak Euclidean
+print("\n🚀 Eksperimen 1: Euclidean Distance (Parallel)...")
+results_euclidean = Parallel(n_jobs=n_jobs)(
+    delayed(compute_wcss_euclidean)(k, semantic_vectors) for k in possible_k
+)
+
+# urutkan hasil berdasarkan k
+results_euclidean.sort(key=lambda x: x[0])
+wcss_euclidean = [r[1] for r in results_euclidean]
+
+# Simpan plot
 plt.figure(figsize=(12, 6))
 plt.plot(possible_k, wcss_euclidean, 'bo-', markerfacecolor='r')
 plt.title('Elbow Method Menggunakan Jarak Euclidean')
@@ -55,25 +72,29 @@ plt.xlabel('Jumlah Cluster (k)')
 plt.ylabel('WCSS (Inertia)')
 plt.grid(True)
 plt.xticks(possible_k)
-plt.show()
+plt.savefig("elbow_euclidean_parallel.png", dpi=300, bbox_inches='tight')
+plt.close()
 
+print("✅ Disimpan: elbow_euclidean_parallel.png")
 
-# ==============================================================================
-#           4. EKSPERIMEN 2: MENENTUKAN K DENGAN JARAK COSINE
-# ==============================================================================
-print("\n--- Eksperimen 2: Menentukan K Optimal dengan Jarak Cosine ---")
-# Trik: Normalisasi L2 pada vektor. Jarak Euclidean pada data yang dinormalisasi
-# setara dengan memaksimalkan Cosine Similarity.
+# ===================================================================
+# 2️⃣  Eksperimen 2 - Cosine (dengan normalisasi L2)
+# ===================================================================
+print("\n🚀 Eksperimen 2: Cosine Distance (Parallel)...")
 semantic_vectors_normalized = normalize(semantic_vectors, norm='l2', axis=1)
-print("Vektor telah dinormalisasi untuk mensimulasikan Jarak Cosine.")
 
-wcss_cosine = []
-for k in possible_k:
+def compute_wcss_cosine(k, X):
     kmeans = KMeans(n_clusters=k, init='k-means++', random_state=42, n_init=10)
-    kmeans.fit(semantic_vectors_normalized)
-    wcss_cosine.append(kmeans.inertia_)
+    kmeans.fit(X)
+    return k, kmeans.inertia_
 
-# Plot grafik Elbow untuk Jarak Cosine
+results_cosine = Parallel(n_jobs=n_jobs)(
+    delayed(compute_wcss_cosine)(k, semantic_vectors_normalized) for k in possible_k
+)
+
+results_cosine.sort(key=lambda x: x[0])
+wcss_cosine = [r[1] for r in results_cosine]
+
 plt.figure(figsize=(12, 6))
 plt.plot(possible_k, wcss_cosine, 'go-', markerfacecolor='b')
 plt.title('Elbow Method Menggunakan Jarak Cosine (via Normalisasi)')
@@ -81,7 +102,23 @@ plt.xlabel('Jumlah Cluster (k)')
 plt.ylabel('WCSS (Inertia pada Data Normalisasi)')
 plt.grid(True)
 plt.xticks(possible_k)
-plt.show()
+plt.savefig("elbow_cosine_parallel.png", dpi=300, bbox_inches='tight')
+plt.close()
+
+print("✅ Disimpan: elbow_cosine_parallel.png")
+
+# ===================================================================
+# Simpan nilai WCSS ke file npy (biar bisa analisis ulang)
+# ===================================================================
+np.savez("wcss_results_parallel.npz",
+         k_values=list(possible_k),
+         wcss_euclidean=wcss_euclidean,
+         wcss_cosine=wcss_cosine)
+
+print("📁 Semua hasil disimpan:")
+print("- elbow_euclidean_parallel.png")
+print("- elbow_cosine_parallel.png")
+print("- wcss_results_parallel.npz")
 
 
 # # ==============================================================================
