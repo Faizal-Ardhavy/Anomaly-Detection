@@ -396,25 +396,33 @@ class LogPreprocessor:
 
 
 # ==============================================================================
-#           BATCH PROCESSING SEMUA FILE LOG
+#           BATCH PROCESSING SEMUA FILE LOG (OPTIMIZED WITH MULTIPROCESSING)
 # ==============================================================================
-def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "../after_PreProcessed_Dataset"):
+def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "../after_PreProcessed_Dataset", 
+                          num_workers: int = None, chunk_size: int = 10000):
     """
     Process semua file .log di dataset directory dan simpan hasilnya
+    OPTIMIZED: Menggunakan multiprocessing untuk file besar
     
     Args:
         dataset_dir: Path ke folder dataset
         output_dir: Path ke folder output untuk hasil preprocessing
+        num_workers: Jumlah CPU cores untuk parallel processing (default: CPU count - 1)
+        chunk_size: Ukuran chunk untuk processing (default: 10000 lines per chunk)
     """
     import os
     from pathlib import Path
+    from multiprocessing import Pool, cpu_count
+    from tqdm import tqdm
+    import time
     
     # Create output directory if not exists
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    # Initialize preprocessor
-    preprocessor = LogPreprocessor()
+    # Determine number of workers
+    if num_workers is None:
+        num_workers = max(1, cpu_count() - 1)  # Leave 1 core free
     
     # Find all .log files in dataset directory (including subdirectories)
     dataset_path = Path(dataset_dir)
@@ -424,12 +432,15 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
     print(f"BATCH PROCESSING - SEMUA FILE LOG DI {dataset_dir}")
     print("="*100)
     print(f"\n✓ Ditemukan {len(log_files)} file .log")
-    print(f"✓ Output akan disimpan di: {output_dir}\n")
+    print(f"✓ Output akan disimpan di: {output_dir}")
+    print(f"✓ Menggunakan {num_workers} CPU cores untuk parallel processing")
+    print(f"✓ Chunk size: {chunk_size:,} lines per batch\n")
     
     # Statistics
     total_files_processed = 0
     total_logs_processed = 0
     failed_files = []
+    start_time = time.time()
     
     # Process each log file
     for i, log_file in enumerate(log_files, 1):
@@ -438,40 +449,54 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
             rel_path = log_file.relative_to(dataset_path)
             
             # Create output filename
-            # Replace path separators with underscores for flat structure
             output_filename = f"AfterPreProcessed_{str(rel_path).replace(os.sep, '_').replace('.log', '.txt')}"
             output_file_path = output_path / output_filename
             
+            # Get file size
+            file_size = log_file.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+            
             print(f"\n[{i}/{len(log_files)}] Processing: {rel_path}")
+            print(f"    File size: {file_size_mb:.2f} MB")
             print(f"    Output: {output_filename}")
             
-            # Read log file
-            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                raw_logs = f.readlines()
+            # Process file with chunking and multiprocessing
+            if file_size_mb > 100:  # Use multiprocessing for files > 100MB
+                print(f"    ⚡ Using multiprocessing (file > 100MB)")
+                preprocessed = process_large_file_parallel(log_file, num_workers, chunk_size)
+            else:
+                print(f"    📄 Using single process (file < 100MB)")
+                preprocessed = process_small_file(log_file)
             
-            print(f"    ✓ Loaded {len(raw_logs)} lines")
+            print(f"    ✓ Preprocessed {len(preprocessed):,} logs")
             
-            # Preprocess
-            preprocessed = preprocessor.preprocess_batch(
-                [line.strip() for line in raw_logs if line.strip()],
-                keep_log_level=True
-            )
-            
-            print(f"    ✓ Preprocessed {len(preprocessed)} logs")
-            
-            # Save to output file
+            # Save to output file (chunked writing for large files)
+            print(f"    💾 Saving to file...")
             with open(output_file_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(preprocessed))
+                # Write in chunks to avoid memory issues
+                for idx in range(0, len(preprocessed), chunk_size):
+                    chunk = preprocessed[idx:idx + chunk_size]
+                    f.write('\n'.join(chunk))
+                    if idx + chunk_size < len(preprocessed):
+                        f.write('\n')
             
             print(f"    ✓ Saved to: {output_file_path}")
             
             total_files_processed += 1
             total_logs_processed += len(preprocessed)
             
+        except KeyboardInterrupt:
+            print(f"\n⚠ Process interrupted by user!")
+            break
         except Exception as e:
             print(f"    ✗ ERROR: {e}")
+            import traceback
+            traceback.print_exc()
             failed_files.append((str(rel_path), str(e)))
             continue
+    
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
     
     # Summary
     print("\n" + "="*100)
@@ -480,15 +505,85 @@ def process_all_log_files(dataset_dir: str = "../dataset", output_dir: str = "..
     print(f"\n✓ Total files processed: {total_files_processed}/{len(log_files)}")
     print(f"✓ Total log lines processed: {total_logs_processed:,}")
     print(f"✓ Output directory: {output_dir}")
+    print(f"✓ Time elapsed: {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
+    print(f"✓ Average speed: {total_logs_processed/(elapsed_time+0.001):.0f} logs/second")
     
     if failed_files:
         print(f"\n⚠ Failed files: {len(failed_files)}")
-        for file, error in failed_files:
+        for file, error in failed_files[:10]:  # Show max 10 errors
             print(f"  - {file}: {error}")
+        if len(failed_files) > 10:
+            print(f"  ... and {len(failed_files)-10} more errors")
     
     print("\n" + "="*100)
     print("✅ BATCH PROCESSING SELESAI!")
     print("="*100)
+
+
+def process_small_file(log_file):
+    """Process small file (<100MB) without multiprocessing"""
+    preprocessor = LogPreprocessor()
+    
+    with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+        raw_logs = [line.strip() for line in f if line.strip()]
+    
+    print(f"    ✓ Loaded {len(raw_logs):,} lines")
+    
+    preprocessed = preprocessor.preprocess_batch(raw_logs, keep_log_level=True)
+    return preprocessed
+
+
+def process_chunk(args):
+    """Process a chunk of log lines (worker function for multiprocessing)"""
+    chunk_lines, chunk_id = args
+    preprocessor = LogPreprocessor()
+    return preprocessor.preprocess_batch(chunk_lines, keep_log_level=True)
+
+
+def process_large_file_parallel(log_file, num_workers, chunk_size):
+    """Process large file (>100MB) with multiprocessing"""
+    from multiprocessing import Pool
+    from tqdm import tqdm
+    
+    # Read file in chunks to avoid loading entire file into memory
+    print(f"    📖 Reading file in chunks...")
+    chunks = []
+    chunk_buffer = []
+    
+    with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                chunk_buffer.append(line)
+                
+                if len(chunk_buffer) >= chunk_size:
+                    chunks.append((chunk_buffer, len(chunks)))
+                    chunk_buffer = []
+        
+        # Add remaining lines
+        if chunk_buffer:
+            chunks.append((chunk_buffer, len(chunks)))
+    
+    print(f"    ✓ Created {len(chunks)} chunks")
+    print(f"    ⚙️  Processing with {num_workers} workers...")
+    
+    # Process chunks in parallel
+    preprocessed_results = []
+    with Pool(processes=num_workers) as pool:
+        # Use imap_unordered for better performance with progress bar
+        results = list(tqdm(
+            pool.imap_unordered(process_chunk, chunks),
+            total=len(chunks),
+            desc="    Processing chunks",
+            unit="chunk"
+        ))
+    
+    # Flatten results (maintain order by chunk_id if needed)
+    preprocessed = []
+    for result in results:
+        preprocessed.extend(result)
+    
+    return preprocessed
 
 
 # ==============================================================================
