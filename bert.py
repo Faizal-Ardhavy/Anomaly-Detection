@@ -108,8 +108,9 @@ else:
 MANUAL_BATCH_SIZE = 512  # Set to 384 or 512 to experiment
 
 # COMPARISON MODE: Toggle between pre-tokenization vs per-batch tokenization
-# Set to False to use old method (tokenize per batch) for comparison
-USE_PRE_TOKENIZATION = False  # True = fast (tokenize once), False = old method (tokenize per batch)
+# ⚠️  IMPORTANT: Use True for maximum speed (3-4x faster!)
+# Set to False ONLY for comparison/benchmark testing
+USE_PRE_TOKENIZATION = True  # True = FAST (tokenize once), False = SLOW (old method)
 
 if MANUAL_BATCH_SIZE:
     batch_size = MANUAL_BATCH_SIZE
@@ -117,7 +118,7 @@ if MANUAL_BATCH_SIZE:
 else:
     print(f"\n⚙️  Batch size (AUTO-TUNED): {batch_size}")
 
-print(f"✓ Tokenization mode: {'PRE-TOKENIZATION (Fast)' if USE_PRE_TOKENIZATION else 'PER-BATCH (Old method)'}")
+print(f"✓ Tokenization mode: {'PRE-TOKENIZATION (Fast)' if USE_PRE_TOKENIZATION else 'PER-BATCH (Old/Slow method)'}")
 
 # Disable AMP for GTX 1660 - overhead > benefit
 use_amp = False
