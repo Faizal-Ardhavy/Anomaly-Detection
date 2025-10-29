@@ -33,13 +33,27 @@ output_dir.mkdir(parents=True, exist_ok=True)
 print(f"\n✓ Input directory: {input_dir}")
 print(f"✓ Output directory: {output_dir}")
 
-# Find all .txt files
-txt_files = list(input_dir.glob("*.txt"))
+# Find all .txt files and SORT them alphabetically for consistent order
+txt_files = sorted(list(input_dir.glob("*.txt")))
 print(f"\n✓ Found {len(txt_files)} preprocessed files to process")
 
 if len(txt_files) == 0:
     print("\n⚠ No .txt files found in input directory!")
     exit(1)
+
+# Check how many already processed (for resume info)
+already_processed = 0
+for txt_file in txt_files:
+    output_filename = txt_file.stem + "_embeddings.npy"
+    output_path = output_dir / output_filename
+    if output_path.exists():
+        already_processed += 1
+
+if already_processed > 0:
+    print(f"✓ Already processed: {already_processed} files (will be skipped)")
+    print(f"✓ Remaining to process: {len(txt_files) - already_processed} files")
+else:
+    print(f"✓ Starting fresh - no files processed yet")
 
 # ============================================================================
 # BATCH PROCESSING CONFIGURATION
@@ -68,8 +82,10 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         
         # Skip if already processed
         if output_path.exists():
+            file_size_mb = output_path.stat().st_size / (1024 * 1024)
             print(f"\n[{file_idx}/{len(txt_files)}] ⏭️  SKIPPED: {txt_file.name}")
-            print(f"    (Already exists: {output_filename})")
+            print(f"    (Already exists: {output_filename}, size: {file_size_mb:.2f} MB)")
+            total_files_processed += 1  # Count as processed
             continue
         
         print(f"\n[{file_idx}/{len(txt_files)}] 📖 Reading: {txt_file.name}")
@@ -154,17 +170,31 @@ for file_idx, txt_file in enumerate(txt_files, 1):
 # SUMMARY
 # ============================================================================
 elapsed_time = time.time() - start_time
+skipped_count = already_processed
 
 print("\n" + "="*100)
 print("📊 SUMMARY")
 print("="*100)
-print(f"\n✓ Total files processed: {total_files_processed}/{len(txt_files)}")
+print(f"\n✓ Total files in dataset: {len(txt_files)}")
+print(f"✓ Files processed this session: {total_files_processed - skipped_count}")
+print(f"✓ Files skipped (already done): {skipped_count}")
+print(f"✓ Total completed: {total_files_processed}/{len(txt_files)}")
 print(f"✓ Total log lines embedded: {total_lines_processed:,}")
 print(f"✓ Output directory: {output_dir}")
-print(f"✓ Time elapsed: {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
+print(f"✓ Time elapsed this session: {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
 
 if total_lines_processed > 0:
     print(f"✓ Average speed: {total_lines_processed/elapsed_time:.0f} lines/second")
+
+# Show progress percentage
+progress_pct = (total_files_processed / len(txt_files)) * 100
+print(f"\n📈 Overall Progress: {progress_pct:.1f}% complete")
+remaining = len(txt_files) - total_files_processed
+if remaining > 0:
+    print(f"⏳ Remaining files: {remaining}")
+    if total_lines_processed > 0:
+        est_time_min = (remaining * elapsed_time / max(total_files_processed - skipped_count, 1)) / 60
+        print(f"⏱️  Estimated time to finish: {est_time_min:.1f} minutes ({est_time_min/60:.1f} hours)")
 
 if failed_files:
     print(f"\n⚠️  Failed files: {len(failed_files)}")
