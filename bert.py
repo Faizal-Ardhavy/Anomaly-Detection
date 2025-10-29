@@ -206,7 +206,7 @@ for file_idx, txt_file in enumerate(txt_files, 1):
                 lines,  # Tokenize ALL at once!
                 return_tensors="pt",
                 truncation=True,
-                max_length=128,
+                max_length=64,  # ← REDUCED from 128! Log lines are short
                 padding=True,
                 return_attention_mask=True
             )
@@ -314,7 +314,7 @@ for file_idx, txt_file in enumerate(txt_files, 1):
                             batch,
                             return_tensors="pt",
                             truncation=True,
-                            max_length=128,
+                            max_length=64,  # ← REDUCED from 128!
                             padding=True,
                             return_attention_mask=True
                         )
