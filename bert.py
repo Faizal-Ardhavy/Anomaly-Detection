@@ -182,61 +182,63 @@ for file_idx, txt_file in enumerate(txt_files, 1):
             print(f"    📊 Batches: {num_batches:,} (batch_size={batch_size})")
         
         # Generate embeddings with optimizations
-        embeddings = []
-        
-        # Pre-allocate numpy array for better performance
         embeddings_array = np.zeros((len(lines), 768), dtype=np.float32)
         current_idx = 0
         
+        # AGGRESSIVE OPTIMIZATION: Pre-tokenize in large batches
+        # Tokenizer is CPU-bound and slow when called repeatedly
+        print(f"    🔧 Pre-tokenizing all lines (this may take a moment)...")
+        all_inputs = tokenizer(
+            lines,  # Tokenize ALL at once!
+            return_tensors="pt",
+            truncation=True,
+            max_length=128,
+            padding=True,
+            return_attention_mask=True
+        )
+        print(f"    ✓ Tokenization complete! Starting GPU processing...")
+        
+        # Move entire dataset preparation to GPU in batches
+        total_samples = len(lines)
+        
         # Progress bar for this file
-        with tqdm(total=len(lines), desc="    Processing", unit="lines", 
+        with tqdm(total=total_samples, desc="    Processing", unit="lines", 
                   bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
             
-            for i in range(0, len(lines), batch_size):
-                batch = lines[i:i+batch_size]
-                actual_batch_size = len(batch)
+            for i in range(0, total_samples, batch_size):
+                end_idx = min(i + batch_size, total_samples)
+                actual_batch_size = end_idx - i
                 
-                # Tokenize batch with DYNAMIC padding (faster!)
-                inputs = tokenizer(
-                    batch, 
-                    return_tensors="pt", 
-                    truncation=True, 
-                    max_length=128,
-                    padding=True,  # Dynamic padding to longest in batch (not max_length!)
-                    return_attention_mask=True
-                )
+                # Slice pre-tokenized inputs
+                batch_inputs = {
+                    k: v[i:end_idx].to(device, non_blocking=True) 
+                    for k, v in all_inputs.items()
+                }
                 
-                # Move to GPU with non-blocking transfer
-                inputs = {k: v.to(device, non_blocking=True) for k, v in inputs.items()}
-                
-                # Generate embeddings
+                # Generate embeddings (pure GPU work, FAST!)
                 with torch.no_grad():
-                    outputs = model(**inputs)
+                    outputs = model(**batch_inputs)
                     last_hidden_state = outputs.last_hidden_state
 
                     # Optimized mean pooling
-                    attention_mask = inputs['attention_mask']
+                    attention_mask = batch_inputs['attention_mask']
                     mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
                     sum_embeddings = torch.sum(last_hidden_state * mask, dim=1)
                     sum_mask = torch.clamp(mask.sum(dim=1), min=1e-9)
                     sentence_embeddings = sum_embeddings / sum_mask
                     
-                    # Direct copy to pre-allocated array (faster than extend/append)
+                    # Direct copy to pre-allocated array
                     embeddings_array[current_idx:current_idx+actual_batch_size] = sentence_embeddings.cpu().numpy()
                     current_idx += actual_batch_size
                 
                 # Update progress
                 pbar.update(actual_batch_size)
-                
-                # Clear cache every 1000 batches
-                if i % (batch_size * 1000) == 0 and torch.cuda.is_available():
-                    torch.cuda.empty_cache()
         
-        # Trim array to actual size (in case of early exit)
+        # Trim array to actual size
         embeddings_array = embeddings_array[:current_idx]
         
         # Clear memory
-        del lines
+        del lines, all_inputs
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
