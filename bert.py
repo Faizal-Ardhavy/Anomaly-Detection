@@ -86,18 +86,18 @@ else:
 # ============================================================================
 # BATCH PROCESSING CONFIGURATION - OPTIMIZED FOR GTX 1660 6GB
 # ============================================================================
-# Fixed batch size for GTX 1660 6GB (auto-detection was too conservative)
+# Aggressive batch size for GTX 1660 6GB
 if torch.cuda.is_available():
     available_vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-    # GTX 1660 6GB: Optimal batch_size is 64-96 for BERT-base with max_length=128
+    # GTX 1660: Push to max with dynamic padding
     if available_vram_gb >= 5.5:  # GTX 1660 has ~5.79GB
-        batch_size = 96  # Push harder with max_length=128
+        batch_size = 128  # Increased from 96
     elif available_vram_gb >= 4:
-        batch_size = 64
+        batch_size = 96
     elif available_vram_gb >= 3:
-        batch_size = 32
+        batch_size = 64
     else:
-        batch_size = 16
+        batch_size = 32
 else:
     batch_size = 8  # CPU fallback
 
@@ -109,16 +109,17 @@ if MANUAL_BATCH_SIZE:
 else:
     print(f"\n⚙️  Batch size (AUTO-TUNED): {batch_size}")
 
-# Pin memory for faster CPU->GPU transfer
-pin_memory = torch.cuda.is_available()
-
-# Disable AMP for GTX 1660 - it's actually SLOWER due to overhead
-# GTX 1660 has limited Tensor Cores, AMP overhead > speedup benefit
-use_amp = False  # Disabled for GTX 1660
+# Disable AMP for GTX 1660 - overhead > benefit
+use_amp = False
 print(f"✓ Mixed Precision (AMP): DISABLED (GTX 1660 faster without AMP)")
 
-# Prefetch factor for data loading
-prefetch_factor = 4  # Load 4 batches ahead
+# DataLoader settings for faster CPU->GPU pipeline
+num_workers = 4  # Parallel data loading
+pin_memory = True  # Faster CPU->GPU transfer
+persistent_workers = True  # Keep workers alive
+
+print(f"✓ DataLoader workers: {num_workers}")
+print(f"✓ Pin memory: {pin_memory}")
 
 # Statistics
 total_files_processed = 0
@@ -183,58 +184,59 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         # Generate embeddings with optimizations
         embeddings = []
         
+        # Pre-allocate numpy array for better performance
+        embeddings_array = np.zeros((len(lines), 768), dtype=np.float32)
+        current_idx = 0
+        
         # Progress bar for this file
         with tqdm(total=len(lines), desc="    Processing", unit="lines", 
                   bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
             
             for i in range(0, len(lines), batch_size):
                 batch = lines[i:i+batch_size]
+                actual_batch_size = len(batch)
                 
-                # Tokenize batch with optimized settings
+                # Tokenize batch with DYNAMIC padding (faster!)
                 inputs = tokenizer(
                     batch, 
                     return_tensors="pt", 
                     truncation=True, 
-                    max_length=128,  # Reduced from 512 - log lines rarely need 512 tokens
-                    padding='max_length',  # Consistent tensor size for better GPU utilization
+                    max_length=128,
+                    padding=True,  # Dynamic padding to longest in batch (not max_length!)
                     return_attention_mask=True
                 )
                 
-                # Pin memory for faster transfer
-                if pin_memory:
-                    inputs = {k: v.pin_memory().to(device, non_blocking=True) for k, v in inputs.items()}
-                else:
-                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                # Move to GPU with non-blocking transfer
+                inputs = {k: v.to(device, non_blocking=True) for k, v in inputs.items()}
                 
-                # Generate embeddings with mixed precision (if supported)
+                # Generate embeddings
                 with torch.no_grad():
                     outputs = model(**inputs)
+                    last_hidden_state = outputs.last_hidden_state
 
-                last_hidden_state = outputs.last_hidden_state
-
-                # Optimized mean pooling
-                attention_mask = inputs['attention_mask']
-                mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-                sum_embeddings = torch.sum(last_hidden_state * mask, dim=1)
-                sum_mask = torch.clamp(mask.sum(dim=1), min=1e-9)
-                sentence_embeddings = sum_embeddings / sum_mask
-                
-                # Convert to numpy efficiently
-                batch_embeddings = sentence_embeddings.cpu().numpy()
-                embeddings.extend(batch_embeddings)
+                    # Optimized mean pooling
+                    attention_mask = inputs['attention_mask']
+                    mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+                    sum_embeddings = torch.sum(last_hidden_state * mask, dim=1)
+                    sum_mask = torch.clamp(mask.sum(dim=1), min=1e-9)
+                    sentence_embeddings = sum_embeddings / sum_mask
+                    
+                    # Direct copy to pre-allocated array (faster than extend/append)
+                    embeddings_array[current_idx:current_idx+actual_batch_size] = sentence_embeddings.cpu().numpy()
+                    current_idx += actual_batch_size
                 
                 # Update progress
-                pbar.update(len(batch))
+                pbar.update(actual_batch_size)
                 
-                # Clear cache periodically to prevent VRAM fragmentation
-                if i % (batch_size * 100) == 0 and torch.cuda.is_available():
+                # Clear cache every 1000 batches
+                if i % (batch_size * 1000) == 0 and torch.cuda.is_available():
                     torch.cuda.empty_cache()
         
-        # Convert to numpy array efficiently
-        embeddings_array = np.array(embeddings, dtype=np.float32)  # Use float32 instead of float64
+        # Trim array to actual size (in case of early exit)
+        embeddings_array = embeddings_array[:current_idx]
         
         # Clear memory
-        del embeddings, lines
+        del lines
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
