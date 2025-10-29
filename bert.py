@@ -86,14 +86,15 @@ else:
 # ============================================================================
 # BATCH PROCESSING CONFIGURATION - OPTIMIZED FOR GTX 1660 6GB
 # ============================================================================
-# Automatic batch size calculation based on available VRAM
+# Fixed batch size for GTX 1660 6GB (auto-detection was too conservative)
 if torch.cuda.is_available():
     available_vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-    # GTX 1660 6GB: Can handle batch_size 32-64 for BERT-base
-    # Rule of thumb: ~100MB per sample for BERT-base
-    if available_vram_gb >= 6:
-        batch_size = 64  # Maksimal untuk 6GB VRAM
+    # GTX 1660 6GB: Optimal batch_size is 64-96 for BERT-base with max_length=128
+    if available_vram_gb >= 5.5:  # GTX 1660 has ~5.79GB
+        batch_size = 96  # Push harder with max_length=128
     elif available_vram_gb >= 4:
+        batch_size = 64
+    elif available_vram_gb >= 3:
         batch_size = 32
     else:
         batch_size = 16
@@ -111,12 +112,10 @@ else:
 # Pin memory for faster CPU->GPU transfer
 pin_memory = torch.cuda.is_available()
 
-# Use mixed precision for 2x speedup (requires GPU with Tensor Cores)
-use_amp = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 7
-if use_amp:
-    print(f"✓ Mixed Precision (AMP): ENABLED (2x faster)")
-else:
-    print(f"✓ Mixed Precision (AMP): DISABLED (GPU too old or CPU mode)")
+# Disable AMP for GTX 1660 - it's actually SLOWER due to overhead
+# GTX 1660 has limited Tensor Cores, AMP overhead > speedup benefit
+use_amp = False  # Disabled for GTX 1660
+print(f"✓ Mixed Precision (AMP): DISABLED (GTX 1660 faster without AMP)")
 
 # Prefetch factor for data loading
 prefetch_factor = 4  # Load 4 batches ahead
@@ -176,17 +175,13 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         print(f"    ✓ Total lines: {len(lines):,}")
         print(f"    ⚙️  Generating embeddings...")
         
-        # Estimate VRAM usage
-        estimated_vram_gb = (len(lines) / batch_size) * 0.1  # ~100MB per batch
+        # Calculate batches
+        num_batches = (len(lines) + batch_size - 1) // batch_size
         if torch.cuda.is_available():
-            print(f"    📊 Estimated VRAM usage: {estimated_vram_gb:.2f} GB")
+            print(f"    📊 Batches: {num_batches:,} (batch_size={batch_size})")
         
         # Generate embeddings with optimizations
         embeddings = []
-        
-        # Initialize AMP scaler if using mixed precision
-        if use_amp:
-            scaler = torch.cuda.amp.GradScaler()
         
         # Progress bar for this file
         with tqdm(total=len(lines), desc="    Processing", unit="lines", 
@@ -213,11 +208,7 @@ for file_idx, txt_file in enumerate(txt_files, 1):
                 
                 # Generate embeddings with mixed precision (if supported)
                 with torch.no_grad():
-                    if use_amp:
-                        with torch.cuda.amp.autocast():
-                            outputs = model(**inputs)
-                    else:
-                        outputs = model(**inputs)
+                    outputs = model(**inputs)
 
                 last_hidden_state = outputs.last_hidden_state
 
