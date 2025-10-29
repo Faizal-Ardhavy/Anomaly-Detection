@@ -105,12 +105,19 @@ else:
 
 # Allow manual override for experimentation
 # Try 384 or 512 if you want to push even harder!
-MANUAL_BATCH_SIZE = 1024  # Set to 384 or 512 to experiment
+MANUAL_BATCH_SIZE = 512  # Set to 384 or 512 to experiment
+
+# COMPARISON MODE: Toggle between pre-tokenization vs per-batch tokenization
+# Set to False to use old method (tokenize per batch) for comparison
+USE_PRE_TOKENIZATION = False  # True = fast (tokenize once), False = old method (tokenize per batch)
+
 if MANUAL_BATCH_SIZE:
     batch_size = MANUAL_BATCH_SIZE
     print(f"\n⚙️  Batch size (MANUAL): {batch_size}")
 else:
     print(f"\n⚙️  Batch size (AUTO-TUNED): {batch_size}")
+
+print(f"✓ Tokenization mode: {'PRE-TOKENIZATION (Fast)' if USE_PRE_TOKENIZATION else 'PER-BATCH (Old method)'}")
 
 # Disable AMP for GTX 1660 - overhead > benefit
 use_amp = False
@@ -188,99 +195,186 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         embeddings_array = np.zeros((len(lines), 768), dtype=np.float32)
         current_idx = 0
         
-        # AGGRESSIVE OPTIMIZATION: Pre-tokenize in large batches
-        # Tokenizer is CPU-bound and slow when called repeatedly
-        print(f"    🔧 Pre-tokenizing all lines (this may take a moment)...")
-        all_inputs = tokenizer(
-            lines,  # Tokenize ALL at once!
-            return_tensors="pt",
-            truncation=True,
-            max_length=128,
-            padding=True,
-            return_attention_mask=True
-        )
-        print(f"    ✓ Tokenization complete! Starting GPU processing...")
-        
-        # Move entire dataset preparation to GPU in batches
-        total_samples = len(lines)
-        
-        # Auto batch size adjustment with OOM recovery
-        current_batch_size = batch_size
-        oom_retry_count = 0
-        max_oom_retries = 3
-        
-        # Progress bar for this file
-        with tqdm(total=total_samples, desc="    Processing", unit="lines", 
-                  bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+        # Choose tokenization strategy based on mode
+        if USE_PRE_TOKENIZATION:
+            # ============================================================
+            # METHOD 1: PRE-TOKENIZATION (FAST) - Tokenize once
+            # ============================================================
+            print(f"    🔧 Pre-tokenizing all lines (this may take a moment)...")
+            all_inputs = tokenizer(
+                lines,  # Tokenize ALL at once!
+                return_tensors="pt",
+                truncation=True,
+                max_length=128,
+                padding=True,
+                return_attention_mask=True
+            )
+            print(f"    ✓ Tokenization complete! Starting GPU processing...")
             
-            i = 0
-            while i < total_samples:
-                end_idx = min(i + current_batch_size, total_samples)
-                actual_batch_size = end_idx - i
+            # Auto batch size adjustment with OOM recovery
+            current_batch_size = batch_size
+            oom_retry_count = 0
+            max_oom_retries = 3
+            
+            # Progress bar
+            with tqdm(total=len(lines), desc="    Processing", unit="lines", 
+                      bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
                 
-                try:
-                    # Slice pre-tokenized inputs
-                    batch_inputs = {
-                        k: v[i:end_idx].to(device, non_blocking=True) 
-                        for k, v in all_inputs.items()
-                    }
+                i = 0
+                while i < len(lines):
+                    end_idx = min(i + current_batch_size, len(lines))
+                    actual_batch_size = end_idx - i
                     
-                    # Generate embeddings (pure GPU work, FAST!)
-                    with torch.no_grad():
-                        outputs = model(**batch_inputs)
-                        last_hidden_state = outputs.last_hidden_state
+                    try:
+                        # Slice pre-tokenized inputs
+                        batch_inputs = {
+                            k: v[i:end_idx].to(device, non_blocking=True) 
+                            for k, v in all_inputs.items()
+                        }
+                        
+                        # Generate embeddings (pure GPU work, FAST!)
+                        with torch.no_grad():
+                            outputs = model(**batch_inputs)
+                            last_hidden_state = outputs.last_hidden_state
 
-                        # Optimized mean pooling
-                        attention_mask = batch_inputs['attention_mask']
-                        mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-                        sum_embeddings = torch.sum(last_hidden_state * mask, dim=1)
-                        sum_mask = torch.clamp(mask.sum(dim=1), min=1e-9)
-                        sentence_embeddings = sum_embeddings / sum_mask
+                            # Optimized mean pooling
+                            attention_mask = batch_inputs['attention_mask']
+                            mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+                            sum_embeddings = torch.sum(last_hidden_state * mask, dim=1)
+                            sum_mask = torch.clamp(mask.sum(dim=1), min=1e-9)
+                            sentence_embeddings = sum_embeddings / sum_mask
+                            
+                            # Direct copy to pre-allocated array
+                            embeddings_array[current_idx:current_idx+actual_batch_size] = sentence_embeddings.cpu().numpy()
+                            current_idx += actual_batch_size
                         
-                        # Direct copy to pre-allocated array
-                        embeddings_array[current_idx:current_idx+actual_batch_size] = sentence_embeddings.cpu().numpy()
-                        current_idx += actual_batch_size
-                    
-                    # Update progress
-                    pbar.update(actual_batch_size)
-                    
-                    # Move to next batch
-                    i = end_idx
-                    oom_retry_count = 0  # Reset retry counter on success
-                    
-                except RuntimeError as e:
-                    if "out of memory" in str(e).lower() or "oom" in str(e).lower():
-                        # OOM Error detected!
-                        if oom_retry_count >= max_oom_retries:
-                            print(f"\n    ✗ OOM Error: Failed after {max_oom_retries} retries")
-                            print(f"    Current batch_size: {current_batch_size}")
-                            print(f"    Try setting MANUAL_BATCH_SIZE to a smaller value (e.g., 64 or 128)")
+                        # Update progress
+                        pbar.update(actual_batch_size)
+                        
+                        # Move to next batch
+                        i = end_idx
+                        oom_retry_count = 0  # Reset retry counter on success
+                        
+                    except RuntimeError as e:
+                        if "out of memory" in str(e).lower() or "oom" in str(e).lower():
+                            # OOM Error detected!
+                            if oom_retry_count >= max_oom_retries:
+                                print(f"\n    ✗ OOM Error: Failed after {max_oom_retries} retries")
+                                print(f"    Current batch_size: {current_batch_size}")
+                                print(f"    Try setting MANUAL_BATCH_SIZE to a smaller value (e.g., 64 or 128)")
+                                raise
+                            
+                            # Auto-reduce batch size
+                            old_batch_size = current_batch_size
+                            current_batch_size = max(16, current_batch_size // 2)
+                            oom_retry_count += 1
+                            
+                            print(f"\n    ⚠️  OOM detected! Auto-reducing batch_size: {old_batch_size} → {current_batch_size}")
+                            print(f"    Retry {oom_retry_count}/{max_oom_retries}...")
+                            
+                            # Clear VRAM
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            gc.collect()
+                            
+                            # Retry this batch with smaller size (don't increment i)
+                            continue
+                        else:
+                            # Other RuntimeError, re-raise
                             raise
+            
+            # Clean up pre-tokenized data
+            del all_inputs
+            
+        else:
+            # ============================================================
+            # METHOD 2: PER-BATCH TOKENIZATION (OLD METHOD) - For comparison
+            # ============================================================
+            print(f"    ⚙️  Using per-batch tokenization (old method)...")
+            
+            # Auto batch size adjustment with OOM recovery
+            current_batch_size = batch_size
+            oom_retry_count = 0
+            max_oom_retries = 3
+            
+            # Progress bar
+            with tqdm(total=len(lines), desc="    Processing", unit="lines", 
+                      bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+                
+                i = 0
+                while i < len(lines):
+                    end_idx = min(i + current_batch_size, len(lines))
+                    actual_batch_size = end_idx - i
+                    batch = lines[i:end_idx]
+                    
+                    try:
+                        # Tokenize THIS batch only (OLD METHOD - CPU bottleneck!)
+                        batch_inputs = tokenizer(
+                            batch,
+                            return_tensors="pt",
+                            truncation=True,
+                            max_length=128,
+                            padding=True,
+                            return_attention_mask=True
+                        )
+                        batch_inputs = {k: v.to(device, non_blocking=True) for k, v in batch_inputs.items()}
                         
-                        # Auto-reduce batch size
-                        old_batch_size = current_batch_size
-                        current_batch_size = max(16, current_batch_size // 2)
-                        oom_retry_count += 1
+                        # Generate embeddings
+                        with torch.no_grad():
+                            outputs = model(**batch_inputs)
+                            last_hidden_state = outputs.last_hidden_state
+
+                            # Optimized mean pooling
+                            attention_mask = batch_inputs['attention_mask']
+                            mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+                            sum_embeddings = torch.sum(last_hidden_state * mask, dim=1)
+                            sum_mask = torch.clamp(mask.sum(dim=1), min=1e-9)
+                            sentence_embeddings = sum_embeddings / sum_mask
+                            
+                            # Direct copy to pre-allocated array
+                            embeddings_array[current_idx:current_idx+actual_batch_size] = sentence_embeddings.cpu().numpy()
+                            current_idx += actual_batch_size
                         
-                        print(f"\n    ⚠️  OOM detected! Auto-reducing batch_size: {old_batch_size} → {current_batch_size}")
-                        print(f"    Retry {oom_retry_count}/{max_oom_retries}...")
+                        # Update progress
+                        pbar.update(actual_batch_size)
                         
-                        # Clear VRAM
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                        gc.collect()
+                        # Move to next batch
+                        i = end_idx
+                        oom_retry_count = 0  # Reset retry counter on success
                         
-                        # Retry this batch with smaller size (don't increment i)
-                        continue
-                    else:
-                        # Other RuntimeError, re-raise
-                        raise
+                    except RuntimeError as e:
+                        if "out of memory" in str(e).lower() or "oom" in str(e).lower():
+                            # OOM Error detected!
+                            if oom_retry_count >= max_oom_retries:
+                                print(f"\n    ✗ OOM Error: Failed after {max_oom_retries} retries")
+                                print(f"    Current batch_size: {current_batch_size}")
+                                print(f"    Try setting MANUAL_BATCH_SIZE to a smaller value")
+                                raise
+                            
+                            # Auto-reduce batch size
+                            old_batch_size = current_batch_size
+                            current_batch_size = max(16, current_batch_size // 2)
+                            oom_retry_count += 1
+                            
+                            print(f"\n    ⚠️  OOM detected! Auto-reducing batch_size: {old_batch_size} → {current_batch_size}")
+                            print(f"    Retry {oom_retry_count}/{max_oom_retries}...")
+                            
+                            # Clear VRAM
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            gc.collect()
+                            
+                            # Retry this batch with smaller size (don't increment i)
+                            continue
+                        else:
+                            # Other RuntimeError, re-raise
+                            raise
         
         # Trim array to actual size
         embeddings_array = embeddings_array[:current_idx]
         
         # Clear memory
-        del lines, all_inputs
+        del lines
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
