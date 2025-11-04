@@ -8,6 +8,7 @@ import numpy as np
 from tqdm import tqdm
 import time
 import gc
+import shutil
 
 load_dotenv('account.env')
 login(os.getenv("HUGGINGFACE_TOKEN"))
@@ -55,11 +56,34 @@ print(f"✓ Model: {model.config._name_or_path}")
 # SETUP DIRECTORIES
 # ============================================================================
 input_dir = Path("../after_PreProcessed_Dataset")
-output_dir = Path("../dataset_vector")
-output_dir.mkdir(parents=True, exist_ok=True)
+primary_output_dir = Path("../dataset_vector")
+backup_output_dir = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector")
+
+# Fungsi untuk cek ruang disk yang tersedia
+def get_free_space_gb(path):
+    """Get free disk space in GB for the given path"""
+    try:
+        # Buat folder jika belum ada untuk bisa cek disk space
+        path.mkdir(parents=True, exist_ok=True)
+        stat = shutil.disk_usage(path)
+        return stat.free / (1024**3)  # Convert to GB
+    except Exception as e:
+        print(f"⚠️  Error checking disk space for {path}: {e}")
+        return 0
+
+# Buat kedua folder jika belum ada
+primary_output_dir.mkdir(parents=True, exist_ok=True)
+backup_output_dir.mkdir(parents=True, exist_ok=True)
 
 print(f"\n✓ Input directory: {input_dir}")
-print(f"✓ Output directory: {output_dir}")
+print(f"✓ Primary output: {primary_output_dir}")
+print(f"✓ Backup output: {backup_output_dir}")
+
+# Both locations to check for already processed files
+check_locations = [primary_output_dir, backup_output_dir]
+print(f"\n🔍 Will check for existing files in BOTH locations:")
+for loc in check_locations:
+    print(f"   - {loc}")
 
 # Find all .txt files and SORT them alphabetically for consistent order
 txt_files = sorted(list(input_dir.glob("*.txt")))
@@ -69,17 +93,36 @@ if len(txt_files) == 0:
     print("\n⚠ No .txt files found in input directory!")
     exit(1)
 
-# Check how many already processed (for resume info)
+# Check how many already processed (check BOTH locations)
 already_processed = 0
+already_processed_files = {}  # Track which file is in which location
+
 for txt_file in txt_files:
     output_filename = txt_file.stem + "_embeddings.npy"
-    output_path = output_dir / output_filename
-    if output_path.exists():
-        already_processed += 1
-
+    file_exists = False
+    
+    # Check in both locations
+    for check_dir in check_locations:
+        check_path = check_dir / output_filename
+        if check_path.exists():
+            already_processed += 1
+            already_processed_files[output_filename] = check_path
+            file_exists = True
+            break  # Found in one location, no need to check others
+    
 if already_processed > 0:
     print(f"✓ Already processed: {already_processed} files (will be skipped)")
     print(f"✓ Remaining to process: {len(txt_files) - already_processed} files")
+    print(f"   Files found in:")
+    
+    # Count files per location
+    primary_count = sum(1 for p in already_processed_files.values() if primary_output_dir in p.parents)
+    backup_count = sum(1 for p in already_processed_files.values() if backup_output_dir in p.parents)
+    
+    if primary_count > 0:
+        print(f"   - Primary location: {primary_count} files")
+    if backup_count > 0:
+        print(f"   - Backup location: {backup_count} files")
 else:
     print(f"✓ Starting fresh - no files processed yet")
 
@@ -149,13 +192,22 @@ for file_idx, txt_file in enumerate(txt_files, 1):
     try:
         # Output filename
         output_filename = txt_file.stem + "_embeddings.npy"
-        output_path = output_dir / output_filename
         
-        # Skip if already processed
-        if output_path.exists():
-            file_size_mb = output_path.stat().st_size / (1024 * 1024)
+        # Skip if already processed in ANY location
+        file_exists_somewhere = False
+        existing_location = None
+        
+        for check_dir in check_locations:
+            check_path = check_dir / output_filename
+            if check_path.exists():
+                file_exists_somewhere = True
+                existing_location = check_path
+                break
+        
+        if file_exists_somewhere:
+            file_size_mb = existing_location.stat().st_size / (1024 * 1024)
             print(f"\n[{file_idx}/{len(txt_files)}] ⏭️  SKIPPED: {txt_file.name}")
-            print(f"    (Already exists: {output_filename}, size: {file_size_mb:.2f} MB)")
+            print(f"    (Already exists at: {existing_location.parent.name}/{output_filename}, size: {file_size_mb:.2f} MB)")
             total_files_processed += 1  # Count as processed
             continue
         
@@ -185,6 +237,29 @@ for file_idx, txt_file in enumerate(txt_files, 1):
             continue
         
         print(f"    ✓ Total lines: {len(lines):,}")
+        
+        # Estimasi ukuran file output (lines * 768 * 4 bytes untuk float32)
+        estimated_size_bytes = len(lines) * 768 * 4
+        estimated_size_gb = estimated_size_bytes / (1024**3)
+        print(f"    📊 Estimated output size: {estimated_size_gb:.2f} GB")
+        
+        # Tentukan output directory berdasarkan ruang yang tersedia untuk file ini
+        primary_free_space = get_free_space_gb(primary_output_dir)
+        
+        # Tambahkan buffer 10% untuk keamanan
+        required_space_gb = estimated_size_gb * 1.1
+        
+        if primary_free_space >= required_space_gb:
+            output_dir = primary_output_dir
+            print(f"    ✓ Will save to PRIMARY location (free: {primary_free_space:.2f} GB)")
+        else:
+            output_dir = backup_output_dir
+            backup_free_space = get_free_space_gb(backup_output_dir)
+            print(f"    ⚠️  PRIMARY insufficient (free: {primary_free_space:.2f} GB, need: {required_space_gb:.2f} GB)")
+            print(f"    ✓ Will save to BACKUP location (free: {backup_free_space:.2f} GB)")
+        
+        output_path = output_dir / output_filename
+        
         print(f"    ⚙️  Generating embeddings...")
         
         # Calculate batches
@@ -422,7 +497,9 @@ print(f"✓ Files processed this session: {total_files_processed - skipped_count
 print(f"✓ Files skipped (already done): {skipped_count}")
 print(f"✓ Total completed: {total_files_processed}/{len(txt_files)}")
 print(f"✓ Total log lines embedded: {total_lines_processed:,}")
-print(f"✓ Output directory: {output_dir}")
+print(f"✓ Output directories:")
+print(f"   - Primary: {primary_output_dir}")
+print(f"   - Backup: {backup_output_dir}")
 print(f"✓ Time elapsed this session: {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
 
 if total_lines_processed > 0:
