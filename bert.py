@@ -463,7 +463,7 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         
         # SAFETY: Untuk file dengan banyak baris, gunakan per-batch tokenization
         # untuk hindari memory explosion
-        LARGE_FILE_THRESHOLD = 2000000  # 2jt baris
+        LARGE_FILE_THRESHOLD = 1500000  # 1.5jt baris
         if len(lines) > LARGE_FILE_THRESHOLD:
             print(f"    ⚠️  Large file detected ({len(lines):,} lines > {LARGE_FILE_THRESHOLD:,})")
             print(f"    🔧 Forcing PER-BATCH tokenization to prevent memory crash")
