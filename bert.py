@@ -14,6 +14,70 @@ load_dotenv('account.env')
 login(os.getenv("HUGGINGFACE_TOKEN"))
 
 # ============================================================================
+# MEMORY MONITORING UTILITIES
+# ============================================================================
+def get_memory_info():
+    """Get current system memory usage"""
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        return {
+            'total_gb': mem.total / (1024**3),
+            'available_gb': mem.available / (1024**3),
+            'used_gb': mem.used / (1024**3),
+            'percent': mem.percent
+        }
+    except ImportError:
+        return None
+
+def check_memory_safety(required_gb=2.0):
+    """Check if we have enough free RAM"""
+    mem_info = get_memory_info()
+    if mem_info:
+        if mem_info['available_gb'] < required_gb:
+            return False, mem_info
+    return True, mem_info
+
+def process_text_chunk(lines_chunk, batch_size, tokenizer, model, device):
+    """
+    Process a chunk of text lines into embeddings
+    Used for ultra-large file streaming processing
+    """
+    embeddings_list = []
+    
+    for i in range(0, len(lines_chunk), batch_size):
+        batch = lines_chunk[i:i+batch_size]
+        
+        # Tokenize batch
+        batch_inputs = tokenizer(
+            batch,
+            return_tensors="pt",
+            truncation=True,
+            max_length=64,
+            padding=True,
+            return_attention_mask=True
+        )
+        batch_inputs = {k: v.to(device, non_blocking=True) for k, v in batch_inputs.items()}
+        
+        # Generate embeddings
+        with torch.no_grad():
+            outputs = model(**batch_inputs)
+            last_hidden_state = outputs.last_hidden_state
+            
+            # Mean pooling
+            attention_mask = batch_inputs['attention_mask']
+            mask = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
+            sum_embeddings = torch.sum(last_hidden_state * mask, dim=1)
+            sum_mask = torch.clamp(mask.sum(dim=1), min=1e-9)
+            sentence_embeddings = sum_embeddings / sum_mask
+            
+            # Move to CPU and convert to numpy
+            embeddings_list.append(sentence_embeddings.cpu().numpy())
+    
+    # Concatenate all batches
+    return np.vstack(embeddings_list) if embeddings_list else np.array([])
+
+# ============================================================================
 # OPTIMIZED GPU SETTINGS
 # ============================================================================
 # Enable TF32 for faster computation on Ampere+ GPUs (minor precision loss, huge speedup)
@@ -215,8 +279,149 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         
         # Get file size info
         file_size_mb = txt_file.stat().st_size / (1024 * 1024)
-        print(f"    File size: {file_size_mb:.2f} MB")
+        file_size_gb = file_size_mb / 1024
+        print(f"    File size: {file_size_mb:.2f} MB ({file_size_gb:.2f} GB)")
         
+        # ============================================================================
+        # ULTRA LARGE FILE HANDLING (> 2GB)
+        # For files this big, we can't load all lines into memory at once
+        # Use streaming + incremental save approach
+        # ============================================================================
+        ULTRA_LARGE_FILE_THRESHOLD_MB = 2000  # 2GB
+        
+        if file_size_mb > ULTRA_LARGE_FILE_THRESHOLD_MB:
+            print(f"    🔥 ULTRA LARGE FILE DETECTED (> {ULTRA_LARGE_FILE_THRESHOLD_MB} MB)!")
+            print(f"    ⚙️  Using STREAMING MODE with incremental processing")
+            print(f"    💾 Processing in chunks to prevent memory overflow...")
+            
+            # Count total lines first (quick scan)
+            print(f"    📊 Counting total lines...")
+            total_lines = 0
+            with open(txt_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        total_lines += 1
+            print(f"    ✓ Total lines: {total_lines:,}")
+            
+            # Estimasi ukuran output
+            estimated_size_bytes = total_lines * 768 * 4
+            estimated_size_gb = estimated_size_bytes / (1024**3)
+            print(f"    📊 Estimated output size: {estimated_size_gb:.2f} GB")
+            
+            # Tentukan output directory
+            primary_free_space = get_free_space_gb(primary_output_dir)
+            required_space_gb = estimated_size_gb * 1.1
+            
+            if primary_free_space >= required_space_gb:
+                output_dir = primary_output_dir
+                print(f"    ✓ Will save to PRIMARY location (free: {primary_free_space:.2f} GB)")
+            else:
+                output_dir = backup_output_dir
+                backup_free_space = get_free_space_gb(backup_output_dir)
+                print(f"    ⚠️  PRIMARY insufficient (free: {primary_free_space:.2f} GB, need: {required_space_gb:.2f} GB)")
+                print(f"    ✓ Will save to BACKUP location (free: {backup_free_space:.2f} GB)")
+            
+            output_path = output_dir / output_filename
+            
+            # STREAMING PROCESSING dengan chunk size kecil
+            CHUNK_SIZE = 10000  # Process 10k lines at a time
+            num_chunks = (total_lines + CHUNK_SIZE - 1) // CHUNK_SIZE
+            print(f"    📦 Will process in {num_chunks:,} chunks of {CHUNK_SIZE:,} lines each")
+            
+            # Use memmap untuk large arrays (disk-backed, tidak dimuat ke RAM sekaligus)
+            embeddings_memmap = np.memmap(
+                output_path, 
+                dtype='float32', 
+                mode='w+', 
+                shape=(total_lines, 768)
+            )
+            
+            # Process file chunk by chunk
+            current_line_idx = 0
+            chunk_buffer = []
+            
+            # Reduce batch size drastically for ultra large files
+            ultra_batch_size = 64  # Very conservative
+            
+            with open(txt_file, "r", encoding="utf-8") as f:
+                with tqdm(total=total_lines, desc="    Processing", unit="lines",
+                         bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+                    
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        chunk_buffer.append(line)
+                        
+                        # When chunk is full, process it
+                        if len(chunk_buffer) >= CHUNK_SIZE:
+                            # Process this chunk
+                            chunk_embeddings = process_text_chunk(
+                                chunk_buffer, 
+                                ultra_batch_size,
+                                tokenizer,
+                                model,
+                                device
+                            )
+                            
+                            # Write directly to memmap
+                            end_idx = current_line_idx + len(chunk_buffer)
+                            embeddings_memmap[current_line_idx:end_idx] = chunk_embeddings
+                            
+                            # Update progress
+                            pbar.update(len(chunk_buffer))
+                            current_line_idx = end_idx
+                            
+                            # Clear chunk buffer
+                            chunk_buffer = []
+                            
+                            # Aggressive memory cleanup
+                            del chunk_embeddings
+                            gc.collect()
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                    
+                    # Process remaining lines
+                    if chunk_buffer:
+                        chunk_embeddings = process_text_chunk(
+                            chunk_buffer,
+                            ultra_batch_size,
+                            tokenizer,
+                            model,
+                            device
+                        )
+                        end_idx = current_line_idx + len(chunk_buffer)
+                        embeddings_memmap[current_line_idx:end_idx] = chunk_embeddings
+                        pbar.update(len(chunk_buffer))
+                        del chunk_embeddings
+            
+            # Flush memmap to disk
+            embeddings_memmap.flush()
+            del embeddings_memmap
+            
+            # Verify and report
+            file_size_mb = output_path.stat().st_size / (1024 * 1024)
+            print(f"    ✓ Embeddings shape: ({total_lines}, 768)")
+            print(f"    ✓ File size: {file_size_mb:.2f} MB ({file_size_mb/1024:.2f} GB)")
+            print(f"    ✓ Saved to: {output_dir.name}/{output_filename}")
+            
+            total_files_processed += 1
+            total_lines_processed += total_lines
+            
+            # Show memory usage
+            if torch.cuda.is_available():
+                vram_used = torch.cuda.memory_allocated() / 1024**3
+                vram_reserved = torch.cuda.memory_reserved() / 1024**3
+                print(f"    📊 VRAM: {vram_used:.2f}GB used, {vram_reserved:.2f}GB reserved")
+            
+            # Skip to next file (don't use normal processing path)
+            continue
+        
+        # ============================================================================
+        # NORMAL/LARGE FILE HANDLING (< 2GB)
+        # Original code path
+        # ============================================================================
         # Read file in chunks for large files (memory efficient)
         if file_size_mb > 500:  # For files > 500MB
             print(f"    📖 Reading in streaming mode (large file)...")
@@ -236,12 +441,35 @@ for file_idx, txt_file in enumerate(txt_files, 1):
             print(f"    ⚠️  SKIPPED: File is empty")
             continue
         
+        # Memory cleanup before processing large file
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         print(f"    ✓ Total lines: {len(lines):,}")
+        
+        # Memory safety check for large files
+        mem_safe, mem_info = check_memory_safety(required_gb=4.0)
+        if not mem_safe and mem_info:
+            print(f"    ⚠️  WARNING: Low system memory!")
+            print(f"       Available RAM: {mem_info['available_gb']:.2f} GB ({mem_info['percent']:.1f}% used)")
+            print(f"       Recommended: Free up memory or process smaller files first")
+            # Don't fail, just warn - let user decide
         
         # Estimasi ukuran file output (lines * 768 * 4 bytes untuk float32)
         estimated_size_bytes = len(lines) * 768 * 4
         estimated_size_gb = estimated_size_bytes / (1024**3)
         print(f"    📊 Estimated output size: {estimated_size_gb:.2f} GB")
+        
+        # SAFETY: Untuk file dengan banyak baris, gunakan per-batch tokenization
+        # untuk hindari memory explosion
+        LARGE_FILE_THRESHOLD = 2000000  # 2jt baris
+        if len(lines) > LARGE_FILE_THRESHOLD:
+            print(f"    ⚠️  Large file detected ({len(lines):,} lines > {LARGE_FILE_THRESHOLD:,})")
+            print(f"    🔧 Forcing PER-BATCH tokenization to prevent memory crash")
+            use_pre_tokenization_for_this_file = False
+        else:
+            use_pre_tokenization_for_this_file = USE_PRE_TOKENIZATION
         
         # Tentukan output directory berdasarkan ruang yang tersedia untuk file ini
         primary_free_space = get_free_space_gb(primary_output_dir)
@@ -262,17 +490,24 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         
         print(f"    ⚙️  Generating embeddings...")
         
+        # For large files, reduce batch size to prevent memory issues
+        current_batch_size = batch_size
+        if len(lines) > LARGE_FILE_THRESHOLD:
+            # Reduce batch size for large files
+            current_batch_size = min(batch_size, 256)  # Cap at 256
+            print(f"    ⚙️  Reduced batch_size to {current_batch_size} for large file (memory safety)")
+        
         # Calculate batches
-        num_batches = (len(lines) + batch_size - 1) // batch_size
+        num_batches = (len(lines) + current_batch_size - 1) // current_batch_size
         if torch.cuda.is_available():
-            print(f"    📊 Batches: {num_batches:,} (batch_size={batch_size})")
+            print(f"    📊 Batches: {num_batches:,} (batch_size={current_batch_size})")
         
         # Generate embeddings with optimizations
         embeddings_array = np.zeros((len(lines), 768), dtype=np.float32)
         current_idx = 0
         
-        # Choose tokenization strategy based on mode
-        if USE_PRE_TOKENIZATION:
+        # Choose tokenization strategy based on mode AND file size
+        if use_pre_tokenization_for_this_file:
             # ============================================================
             # METHOD 1: PRE-TOKENIZATION (FAST) - Tokenize once
             # ============================================================
@@ -288,7 +523,7 @@ for file_idx, txt_file in enumerate(txt_files, 1):
             print(f"    ✓ Tokenization complete! Starting GPU processing...")
             
             # Auto batch size adjustment with OOM recovery
-            current_batch_size = batch_size
+            current_batch_size = min(current_batch_size, batch_size)  # Use the safer batch size
             oom_retry_count = 0
             max_oom_retries = 3
             
@@ -369,7 +604,7 @@ for file_idx, txt_file in enumerate(txt_files, 1):
             print(f"    ⚙️  Using per-batch tokenization (old method)...")
             
             # Auto batch size adjustment with OOM recovery
-            current_batch_size = batch_size
+            current_batch_size = min(current_batch_size, batch_size)  # Use the safer batch size
             oom_retry_count = 0
             max_oom_retries = 3
             
