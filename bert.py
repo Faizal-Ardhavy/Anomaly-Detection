@@ -455,14 +455,68 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        # Save to file with compression
+        # Save to file with error handling and auto-failover
         print(f"    💾 Saving embeddings...")
-        np.save(output_path, embeddings_array)
+        save_success = False
+        save_attempts = 0
+        max_save_attempts = 2
         
-        file_size_mb = output_path.stat().st_size / (1024 * 1024)
-        print(f"    ✓ Embeddings shape: {embeddings_array.shape}")
-        print(f"    ✓ File size: {file_size_mb:.2f} MB")
-        print(f"    ✓ Saved to: {output_filename}")
+        while not save_success and save_attempts < max_save_attempts:
+            try:
+                # Cek ulang ruang disk sebelum save (actual size check)
+                actual_size_bytes = embeddings_array.nbytes
+                actual_size_gb = actual_size_bytes / (1024**3)
+                current_free_space = get_free_space_gb(output_dir)
+                
+                # Butuh ruang + buffer 5% untuk metadata
+                required_space = actual_size_gb * 1.05
+                
+                if current_free_space < required_space:
+                    # Tidak cukup! Harus pindah lokasi
+                    raise OSError(f"Insufficient disk space: {current_free_space:.2f} GB free, need {required_space:.2f} GB")
+                
+                # Coba save
+                np.save(output_path, embeddings_array)
+                
+                # Verifikasi file berhasil disimpan
+                if output_path.exists():
+                    file_size_mb = output_path.stat().st_size / (1024 * 1024)
+                    print(f"    ✓ Embeddings shape: {embeddings_array.shape}")
+                    print(f"    ✓ File size: {file_size_mb:.2f} MB ({actual_size_gb:.2f} GB)")
+                    print(f"    ✓ Saved to: {output_dir.name}/{output_filename}")
+                    save_success = True
+                else:
+                    raise OSError("File was not created successfully")
+                    
+            except (OSError, IOError) as e:
+                save_attempts += 1
+                
+                # Jika ini attempt pertama dan menggunakan primary, coba backup
+                if save_attempts == 1 and output_dir == primary_output_dir:
+                    print(f"    ⚠️  Save to PRIMARY failed: {e}")
+                    print(f"    🔄 Switching to BACKUP location...")
+                    
+                    # Hapus file partial jika ada
+                    if output_path.exists():
+                        try:
+                            output_path.unlink()
+                            print(f"    🗑️  Removed partial file from PRIMARY")
+                        except:
+                            pass
+                    
+                    # Pindah ke backup
+                    output_dir = backup_output_dir
+                    output_path = output_dir / output_filename
+                    backup_free_space = get_free_space_gb(backup_output_dir)
+                    print(f"    ✓ BACKUP location has {backup_free_space:.2f} GB free")
+                    
+                    # Loop akan retry dengan backup location
+                    continue
+                else:
+                    # Sudah di backup atau attempt ke-2, tidak ada opsi lagi
+                    print(f"    ✗ FATAL: Failed to save file after {save_attempts} attempts")
+                    print(f"    Error: {e}")
+                    raise  # Re-raise untuk ditangkap di outer exception handler
         
         total_files_processed += 1
         total_lines_processed += len(embeddings_array)
