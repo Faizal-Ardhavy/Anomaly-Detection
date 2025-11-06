@@ -21,6 +21,8 @@ class LogPreprocessor:
                 r'\[.*?\]',  # [Thu Jun 09 06:07:04 2005]
                 r'\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[\.\d+]*',  # 2005-06-09 06:07:04 (Windows, OpenStack, Hadoop)
                 r'\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}',  # 09/Jun/2005:06:07:04 (Apache)
+                # Two-digit year formats like 15/09/01 18:14:42 (seen in some Hadoop/OpenStack variants)
+                r'\b\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\b',
                 r'\d{8}-\d{1,2}:\d{1,2}:\d{1,2}:\d{1,3}\|',  # 20171224-20:11:16:931| (HealthApp)
                 r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b',  # Feb 24 11:16:38 (Linux/SSH/Mac)
                 r'\[\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\]',  # [10.30 17:37:51] (Proxifier)
@@ -112,9 +114,10 @@ class LogPreprocessor:
             'components': [
                 r'\b(?:org|com|net|edu)\.[\w.]+\.[\w.]+',  # org.apache.hadoop.mapreduce.v2.app.MRAppMaster
             ],
-            # Node/Location identifiers (BGL supercomputer)
+            # Node/Location identifiers (BGL supercomputer, Thunderbird)
             'node_locations': [
-                r'R\d{2}-M\d+-N\d+-C:J\d{2}-U\d{2}',  # R02-M1-N0-C:J12-U11
+                r'R\d{2}-M\d+-N\d+-C:J\d{2}-U\d{2}',  # R02-M1-N0-C:J12-U11 (BGL)
+                r'\b[cdn]+\d+\s+[cdn]+\d+/[cdn]+\d+\b',  # cn951 cn951/cn951, dn1002 dn1002/dn1002 (Thunderbird)
             ],
             # Windows-specific patterns
             'windows': [
@@ -276,6 +279,81 @@ class LogPreprocessor:
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
     
+    def normalize_camel_case(self, text: str) -> str:
+        """
+        Convert camelCase menjadi spasi-separated words
+        Examples:
+            camelCase -> camel case
+            getUserName -> get user name
+            HTTPResponse -> http response
+            XMLHttpRequest -> xml http request
+        """
+        # Handle sequence of capitals followed by lowercase (HTTPResponse -> HTTP Response)
+        text = re.sub(r'([A-Z]+)([A-Z][a-z])', r'\1 \2', text)
+        
+        # Handle normal camelCase (userName -> user Name)
+        text = re.sub(r'([a-z\d])([A-Z])', r'\1 \2', text)
+        
+        return text
+    
+    def normalize_snake_case(self, text: str) -> str:
+        """
+        Convert snake_case menjadi spasi-separated words
+        Examples:
+            user_name -> user name
+            get_user_data -> get user data
+            HTTP_RESPONSE_CODE -> http response code
+        """
+        # Replace underscore dengan spasi
+        text = text.replace('_', ' ')
+        return text
+    
+    def normalize_kebab_case(self, text: str) -> str:
+        """
+        Convert kebab-case menjadi spasi-separated words
+        Examples:
+            user-name -> user name
+            get-user-data -> get user data
+            http-response-code -> http response code
+        """
+        # Replace hyphen dengan spasi, tapi jaga hyphen yang memang bagian dari kata
+        # (mis: built-in, state-of-the-art)
+        
+        # Replace hyphen yang ada di tengah kata/identifier
+        text = re.sub(r'([a-zA-Z])-([a-zA-Z])', r'\1 \2', text)
+        return text
+    
+    def normalize_dot_separated(self, text: str) -> str:
+        """
+        Normalize dot-separated identifiers (method calls, package names)
+        Examples:
+            object.method.call -> object method call
+            com.example.app -> com example app
+        """
+        # Replace dots dengan spasi untuk method calls dan package names
+        # Tapi jaga dots di angka (1.0, 192.168.1.1)
+        text = re.sub(r'([a-zA-Z])\.([a-zA-Z])', r'\1 \2', text)
+        return text
+    
+    def normalize_all_naming_conventions(self, text: str) -> str:
+        """
+        Normalisasi semua naming conventions sekaligus
+        Urutan penting untuk hasil optimal
+        """
+        # 1. Camel case dulu (sebelum lowercase)
+        text = self.normalize_camel_case(text)
+        
+        # 2. Snake case
+        text = self.normalize_snake_case(text)
+        
+        # 3. Kebab case
+        text = self.normalize_kebab_case(text)
+        
+        # 4. Dot-separated
+        text = self.normalize_dot_separated(text)
+        
+        return text
+    
     def extract_log_level(self, text: str) -> tuple:
         """
         Extract log level (INFO, ERROR, WARNING, NOTICE)
@@ -306,7 +384,11 @@ class LogPreprocessor:
         # 1. Extract log level dulu (sebelum lowercase)
         log_level, text = self.extract_log_level(text)
         
-        # 2. Hapus timestamp (berbagai format)
+        # 2. Normalize naming conventions (SEBELUM lowercase!)
+        # Penting: Dilakukan sebelum lowercase agar camelCase detection berfungsi
+        text = self.normalize_all_naming_conventions(text)
+        
+        # 3. Hapus timestamp (berbagai format)
         text = self.remove_timestamps(text)
         
         # 3. Hapus program names dengan PID
@@ -709,6 +791,13 @@ if __name__ == "__main__":
     
     # Contoh log lines dari BERBAGAI JENIS LOG
     sample_logs = [
+        # Test camelCase, snake_case, kebab-case normalization
+        "getUserData from userName with firstName and lastName",
+        "http_response_code is OK with status_code 200",
+        "user-profile-data sent to api-gateway-service",
+        "DataNode.PacketResponder for BlockManager.updatePipeline",
+        "HTTPResponse.XMLHttpRequest.getResponseData",
+        
         # 1. Apache logs
         "[Thu Jun 09 06:07:04 2005] [notice] LDAP: Built with OpenLDAP LDAP SDK",
         "[Thu Jun 09 07:11:21 2005] [error] [client 204.100.200.22] Directory index forbidden by rule: /var/www/html/",
@@ -750,6 +839,10 @@ if __name__ == "__main__":
         # 11. Hadoop/YARN logs
         "2015-10-17 15:37:56,547 INFO [main] org.apache.hadoop.mapreduce.v2.app.MRAppMaster: Created MRAppMaster for application appattempt_1445062781478_0011_000001",
         "2015-10-17 15:37:56,900 INFO [main] org.apache.hadoop.mapreduce.v2.app.MRAppMaster: Kind: YARN_AM_RM_TOKEN, Service: , Ident: (appAttemptId { application_id { id: 11 cluster_timestamp: 1445062781478 } attemptId: 1 } keyId: 471522253)",
+        
+        # 12. Thunderbird Email Server logs
+        "cn951 cn951/cn951 kernel: mosal(1): mnt_projects/sysapps/src/ib/topspin/hostname-16/third_party/thca4_linux/kernel/mlxsys/obj_host_amd64_custom1_rhel4/mlxsys/mosal_mem.c: mosal_virt_to_phys_ex: cannot retrieve pmd_p: prot_ctx=user, va=0x7fed806eb5d",
+        "dn1002 dn1002/dn1002 kernel: mosal(1): mnt_projects/sysapps/src/ib/topspin/hostname-16/third_party/thca4_linux/kernel/mlxsys/obj_host_amd64_custom1_rhel4/mlxsys/mosal_mem.c: mosal_virt_to_phys_ex: cannot retrieve pmd_p: prot_ctx=user, va=0x7fed806eb5d",
     ]
     
     # Inisialisasi preprocessor
@@ -785,6 +878,11 @@ if __name__ == "__main__":
     Preprocessing teks log SANGAT PENTING karena:
     
     ✅ Menghilangkan noise (timestamp, IP, path spesifik, PIDs, sizes)
+    ✅ Menormalisasi naming conventions:
+       - camelCase → camel case (getUserData → get user data)
+       - snake_case → snake case (user_name → user name)
+       - kebab-case → kebab case (api-gateway → api gateway)
+       - dot.separated → dot separated (object.method → object method)
     ✅ Menormalisasi 17 JENIS LOG BERBEDA:
        1. Apache Web Server          10. Thunderbird Email Server
        2. Proxifier Proxy Logs        11. Zookeeper Coordination
@@ -800,7 +898,8 @@ if __name__ == "__main__":
     ✅ Log yang mirip akan punya embedding yang mirip
     ✅ Clustering akan lebih akurat dan robust
     
-    Preprocessing yang dilakukan (25 tahap):
+    Preprocessing yang dilakukan (26 tahap):
+    - Normalisasi naming conventions (camelCase, snake_case, kebab-case)
     - Hapus timestamp (10 format berbeda)
     - Normalisasi IP, hostname, domain
     - Normalisasi file paths
