@@ -20,9 +20,9 @@ class LogPreprocessor:
             'timestamp': [
                 r'\[.*?\]',  # [Thu Jun 09 06:07:04 2005]
                 r'\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[\.\d+]*',  # 2005-06-09 06:07:04 (Windows, OpenStack, Hadoop)
+                r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{1,2}:\d+',  # 2016-12-17 20:41:6:123 (Android variant)
                 r'\d{2}/\w{3}/\d{4}:\d{2}:\d{2}:\d{2}',  # 09/Jun/2005:06:07:04 (Apache)
-                # Two-digit year formats like 15/09/01 18:14:42 (seen in some Hadoop/OpenStack variants)
-                r'\b\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\b',
+                r'\b\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\b',  # 15/09/01 18:14:42 (Hadoop/OpenStack two-digit year)
                 r'\d{8}-\d{1,2}:\d{1,2}:\d{1,2}:\d{1,3}\|',  # 20171224-20:11:16:931| (HealthApp)
                 r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\b',  # Feb 24 11:16:38 (Linux/SSH/Mac)
                 r'\[\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2}:\d{2}\]',  # [10.30 17:37:51] (Proxifier)
@@ -30,6 +30,7 @@ class LogPreprocessor:
                 r'\d{6}\s+\d{6}',  # 081109 203518 (HDFS)
                 r'\d{10}\s+\d{4}\.\d{2}\.\d{2}',  # 1117838570 2005.06.03 (BGL)
                 r'\d{4}-\d{2}-\d{2}-\d{2}\.\d{2}\.\d{2}\.\d+',  # 2005-06-03-15.42.50.363779 (BGL)
+                r',\d{3,}\s+(?:info|warn|error|debug)',  # ,755 info, ,756 warn (Hadoop/HDFS logs)
             ],
             # IP Address patterns
             'ip': [
@@ -70,8 +71,10 @@ class LogPreprocessor:
                 r'\[\d{4,}\]',  # [6248], [30002312] (process IDs in brackets)
                 r'tty=\w+',  # tty=NODEVssh
                 r'\b\d{1,5}\s+\d{1,5}\s+[IWE]\b',  # Android: 1795  1825 I (PID TID Level)
+                r'\b\d{3,5}\s+\d{3,5}\s+[a-z]\b',  # Android: 2852 2852 d (lowercase variant)
                 r'\bthread_\d+\b',  # Thread IDs
                 r'\[\w+\]',  # [main], [Thread-1] - thread names in Java logs
+                r'\bsub\s*=\s*\d+\b',  # sub=0 (Android subscription IDs)
             ],
             # Program/Service names with PID
             'program': [
@@ -118,6 +121,11 @@ class LogPreprocessor:
             'node_locations': [
                 r'R\d{2}-M\d+-N\d+-C:J\d{2}-U\d{2}',  # R02-M1-N0-C:J12-U11 (BGL)
                 r'\b[cdn]+\d+\s+[cdn]+\d+/[cdn]+\d+\b',  # cn951 cn951/cn951, dn1002 dn1002/dn1002 (Thunderbird)
+                r'\b[a-z]{2}\d+\s+[a-z]{2}\d+/[a-z]{2}\d+\b',  # an143 an143/an143 (Thunderbird variants)
+                r'\b[a-z]+\d+\s+src@[a-z]+\d+\b',  # aadmin2 src@aadmin2 (Thunderbird)
+                r'\bR\d{2}-M\d+-N[fF]\s+[Cc]:J\d{2}-U\d{2}\b',  # r05-m0-nf c:j09-u11 (BGL variant)
+                r'\bR\d{2}-M\d+-N\d+\s+R\d{2}-M\d+-N\d+\b',  # r02-m1-n2 r02-m1-n2 (BGL repetitive)
+                r'\b[a-z]{2}\d+\s+[a-z]{2}\d+/[a-z]{2}\d+\.\d+\b',  # an143 an143/an143.72 (Thunderbird with subnet)
             ],
             # Windows-specific patterns
             'windows': [
@@ -129,6 +137,38 @@ class LogPreprocessor:
             'android': [
                 r'\b[A-Z][a-zA-Z]+\$[A-Z][a-zA-Z]+',  # DataNode$DataXceiver, DisplayPowerController
                 r'action:[\w.]+',  # action:android.com.huawei.bone.NOTIFY_SPORT_DATA
+                r'str\s+mcc\s+mnc\s*=\s*\w+',  # str mcc mnc =null (Android signal controller)
+                r'hash\s+mcc\s+mnc\s*=\s*\w*',  # hash mcc mnc = (Android)
+                r'str\s+plmn\s*=\s*\w+',  # str plmn =hw (Android)
+            ],
+            # Java stack traces (Hadoop, HDFS, Spark)
+            'java_stack_traces': [
+                r'\bat\s+[\w.$]+\([\w\s.:]+\)',  # at org.apache.hadoop.ipc.Client.call(Client.java:1480)
+                r'\bat\s+[\w.$]+\([^)]+\)',  # at sun.nio.ch.SocketChannelImpl.checkConnect(Native Method)
+                r'caused\s+by:\s+[\w.]+:\s*',  # caused by: java.net.ConnectException:
+                r'\.\.\.\s+\d+\s+more\s*$',  # ... 8 more
+                r'\bunknown\s+source\b',  # (Unknown Source)
+                r'\bnative\s+method\b',  # (Native Method)
+            ],
+            # Hardware/Kernel identifiers (Thunderbird, BGL)
+            'hardware_identifiers': [
+                r'acpi:\s+pci\s+interrupt\s+link\s+\([^)]+\)\s+[\d*,\s]+',  # ACPI PCI interrupt links
+                r'acpi:\s+pci\s+interrupt\s+0x[\da-f:]+\s+->\s+gsi\s+\d+\s+\([^)]+\)\s+->\s+irq\s+\d+',  # ACPI PCI interrupt mapping
+                r'\b0x[\da-f]{4}:[\da-f]{2}:[\da-f]{2}\.\d\b',  # PCI device addresses 0000:00:02.0
+                r'\bgsi\s+\d+\s+\(level,\s*low\)',  # GSI interrupt descriptor
+                r'\birq\s+\d+\b',  # IRQ numbers
+            ],
+            # Network/Interface codes (Thunderbird)
+            'network_codes': [
+                r'\bgi\s+\d+/\d+\b',  # gi 8/89 (GigabitEthernet interface)
+                r'%[\w-]+:\s*%[\w-]+:',  # %RPM0-P:CP %IFMGR-5-OSTATE_DN:
+                r'\b[a-z]{2,6}\d+/\d+\b',  # gi8/89, et0/1
+            ],
+            # Generic noise patterns
+            'generic_noise': [
+                r'slf4j\s+logger:\s+slf4j\s+logger\s+started',  # SLF4J logger startup noise
+                r'\bfsck:\s+fsck\s+ext[234]\s+-a\s+',  # fsck command echoes
+                r'\bfsck:\s+/:\s+clean,',  # fsck clean status (keep message part)
             ],
             # HTTP status and metrics
             'http_metrics': [
@@ -241,6 +281,41 @@ class LogPreprocessor:
         """Normalisasi Android-specific patterns"""
         for pattern in self.patterns['android']:
             text = re.sub(pattern, '<ANDROID_SPECIFIC>', text)
+        return text
+    
+    def clean_java_stack_traces(self, text: str) -> str:
+        """Clean Java stack traces - hapus detail line numbers, keep semantic info"""
+        # Remove full stack trace lines starting with 'at'
+        text = re.sub(r'\bat\s+[\w.$]+\([^)]+\)', '<STACK_TRACE>', text)
+        
+        # Remove 'caused by:' with exception class
+        text = re.sub(r'caused\s+by:\s+[\w.]+:\s*', 'caused by: ', text)
+        
+        # Remove '... X more' lines
+        text = re.sub(r'\.\.\.\s+\d+\s+more\s*', '', text)
+        
+        # Remove (Unknown Source) and (Native Method)
+        text = re.sub(r'\(unknown\s+source\)', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\(native\s+method\)', '', text, flags=re.IGNORECASE)
+        
+        return text
+    
+    def remove_hardware_identifiers(self, text: str) -> str:
+        """Hapus hardware/kernel identifiers (ACPI, PCI, IRQ)"""
+        for pattern in self.patterns['hardware_identifiers']:
+            text = re.sub(pattern, '<HW_ID>', text)
+        return text
+    
+    def remove_network_codes(self, text: str) -> str:
+        """Hapus network interface codes dan Cisco-style messages"""
+        for pattern in self.patterns['network_codes']:
+            text = re.sub(pattern, '', text)
+        return text
+    
+    def remove_generic_noise(self, text: str) -> str:
+        """Hapus generic noise patterns"""
+        for pattern in self.patterns['generic_noise']:
+            text = re.sub(pattern, '', text)
         return text
     
     def normalize_http_metrics(self, text: str) -> str:
@@ -442,22 +517,34 @@ class LogPreprocessor:
         # 19. Normalisasi Android-specific patterns
         text = self.normalize_android_specific(text)
         
-        # 20. Normalisasi HTTP metrics
+        # 20. Clean Java stack traces (Hadoop, HDFS, Spark)
+        text = self.clean_java_stack_traces(text)
+        
+        # 21. Hapus hardware identifiers (ACPI, PCI, IRQ)
+        text = self.remove_hardware_identifiers(text)
+        
+        # 22. Hapus network interface codes
+        text = self.remove_network_codes(text)
+        
+        # 23. Hapus generic noise
+        text = self.remove_generic_noise(text)
+        
+        # 24. Normalisasi HTTP metrics
         text = self.normalize_http_metrics(text)
         
-        # 21. Normalisasi angka besar
+        # 25. Normalisasi angka besar
         text = self.normalize_numbers(text)
         
-        # 22. Hapus special characters
+        # 26. Hapus special characters
         text = self.remove_special_chars(text)
         
-        # 23. Lowercase
+        # 27. Lowercase
         text = self.lowercase(text)
         
-        # 24. Clean extra spaces
+        # 28. Clean extra spaces
         text = self.remove_extra_spaces(text)
         
-        # 25. Optional: tambahkan log level di awal
+        # 29. Optional: tambahkan log level di awal
         if keep_log_level and log_level != 'unknown':
             text = f"{log_level}: {text}"
         
@@ -843,6 +930,33 @@ if __name__ == "__main__":
         # 12. Thunderbird Email Server logs
         "cn951 cn951/cn951 kernel: mosal(1): mnt_projects/sysapps/src/ib/topspin/hostname-16/third_party/thca4_linux/kernel/mlxsys/obj_host_amd64_custom1_rhel4/mlxsys/mosal_mem.c: mosal_virt_to_phys_ex: cannot retrieve pmd_p: prot_ctx=user, va=0x7fed806eb5d",
         "dn1002 dn1002/dn1002 kernel: mosal(1): mnt_projects/sysapps/src/ib/topspin/hostname-16/third_party/thca4_linux/kernel/mlxsys/obj_host_amd64_custom1_rhel4/mlxsys/mosal_mem.c: mosal_virt_to_phys_ex: cannot retrieve pmd_p: prot_ctx=user, va=0x7fed806eb5d",
+        
+        # Problematic samples from user's analysis
+        # Android - timestamp and IDs
+        "sdk : 123 sdk: ue se c 2016-12-17 20:41:6:123 level magic:decoder message type is invalidation;invalidation mmtp msg enable extend is",
+        "2852 2852 d hw cust mobile signal controller impl: sub =0,str mcc mnc =null,hash mcc mnc =,str plmn =hw hspap show 4g",
+        
+        # BGL - repetitive node names
+        "- r05-m0-nf c:j09-u11 r05-m0-nf c:j09-u11 RAS KERNEL INFO generating core.123456",
+        "- r02-m1-n2 r02-m1-n2 NULL DISCOVERY ERROR node card status: no alerts are active. clock mode is low.",
+        
+        # HDFS/Hadoop - timestamps and stack traces
+        ",755 INFO org.apache.hadoop.ipc.Client: Retrying connect to server: mesos-master-1/10.0.0.1:9000. Already tried 9 time(s)",
+        "at org.apache.hadoop.ipc.Client.call(Client.java:1480)",
+        "at sun.nio.ch.SocketChannelImpl.checkConnect(Native Method)",
+        "caused by: java.net.ConnectException: Connection refused",
+        "... 8 more",
+        
+        # Spark - noise and stack traces
+        "INFO slf4j.Slf4jLogger: Slf4j logger started",
+        "at org.apache.spark.network.shuffle.RetryingBlockFetcher.fetchAllOutstanding(RetryingBlockFetcher.java:140)",
+        
+        # Thunderbird - unique IDs and hardware codes
+        "aadmin2 src@aadmin2 xinetd: START: rsync from=192.168.1.100",
+        "an143 an143/an143 fsck: /: clean, 123456/789012 files, 456789/901234 blocks",
+        "an143 an143/an143 kernel: ACPI: PCI Interrupt Link [LNKS] (IRQs 3 4 5 6 7 10 11 12) *0, disabled.",
+        "an143 an143/an143 kernel: ACPI: PCI interrupt 0000:00:02.0 -> GSI 16 (level, low) -> IRQ 169",
+        "192.168.1.72 192.168.1.72/192.168.1.72 .72 MDT: %RPM0-P:CP %IFMGR-5-OSTATE_DN: Changed interface state to down: Gi 8/89",
     ]
     
     # Inisialisasi preprocessor
@@ -898,9 +1012,9 @@ if __name__ == "__main__":
     ✅ Log yang mirip akan punya embedding yang mirip
     ✅ Clustering akan lebih akurat dan robust
     
-    Preprocessing yang dilakukan (26 tahap):
+    Preprocessing yang dilakukan (29 tahap):
     - Normalisasi naming conventions (camelCase, snake_case, kebab-case)
-    - Hapus timestamp (10 format berbeda)
+    - Hapus timestamp (13+ format berbeda)
     - Normalisasi IP, hostname, domain
     - Normalisasi file paths
     - Hapus process IDs, UIDs, PIDs, Thread IDs
@@ -911,9 +1025,13 @@ if __name__ == "__main__":
     - Hapus application/container IDs (Hadoop/YARN)
     - Hapus block IDs (HDFS)
     - Normalisasi package names (Java/Python)
-    - Hapus node locations (BGL supercomputer)
+    - Hapus node locations (BGL supercomputer, Thunderbird)
     - Normalisasi Windows-specific patterns
     - Normalisasi Android-specific patterns
+    - Clean Java stack traces (at, caused by, ... X more)
+    - Hapus hardware identifiers (ACPI, PCI, IRQ)
+    - Hapus network interface codes (Cisco, Linux)
+    - Hapus generic noise (SLF4J, fsck echoes)
     - Normalisasi HTTP metrics
     - Lowercase untuk konsistensi
     
