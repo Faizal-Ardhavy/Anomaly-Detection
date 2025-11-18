@@ -311,14 +311,19 @@ for file_idx, txt_file in enumerate(txt_files, 1):
             # Tentukan output directory
             primary_free_space = get_free_space_gb(primary_output_dir)
             required_space_gb = estimated_size_gb * 1.1
+            MIN_PRIMARY_FREE_SPACE = 5.0  # Minimum 5GB free space di primary
             
-            if primary_free_space >= required_space_gb:
+            # Gunakan backup jika primary < 5GB ATAU tidak cukup untuk file ini
+            if primary_free_space >= required_space_gb and primary_free_space >= MIN_PRIMARY_FREE_SPACE:
                 output_dir = primary_output_dir
                 print(f"    ✓ Will save to PRIMARY location (free: {primary_free_space:.2f} GB)")
             else:
                 output_dir = backup_output_dir
                 backup_free_space = get_free_space_gb(backup_output_dir)
-                print(f"    ⚠️  PRIMARY insufficient (free: {primary_free_space:.2f} GB, need: {required_space_gb:.2f} GB)")
+                if primary_free_space < MIN_PRIMARY_FREE_SPACE:
+                    print(f"    ⚠️  PRIMARY below minimum threshold (free: {primary_free_space:.2f} GB < {MIN_PRIMARY_FREE_SPACE:.2f} GB)")
+                else:
+                    print(f"    ⚠️  PRIMARY insufficient (free: {primary_free_space:.2f} GB, need: {required_space_gb:.2f} GB)")
                 print(f"    ✓ Will save to BACKUP location (free: {backup_free_space:.2f} GB)")
             
             output_path = output_dir / output_filename
@@ -476,14 +481,19 @@ for file_idx, txt_file in enumerate(txt_files, 1):
         
         # Tambahkan buffer 10% untuk keamanan
         required_space_gb = estimated_size_gb * 1.1
+        MIN_PRIMARY_FREE_SPACE = 5.0  # Minimum 5GB free space di primary
         
-        if primary_free_space >= required_space_gb:
+        # Gunakan backup jika primary < 5GB ATAU tidak cukup untuk file ini
+        if primary_free_space >= required_space_gb and primary_free_space >= MIN_PRIMARY_FREE_SPACE:
             output_dir = primary_output_dir
             print(f"    ✓ Will save to PRIMARY location (free: {primary_free_space:.2f} GB)")
         else:
             output_dir = backup_output_dir
             backup_free_space = get_free_space_gb(backup_output_dir)
-            print(f"    ⚠️  PRIMARY insufficient (free: {primary_free_space:.2f} GB, need: {required_space_gb:.2f} GB)")
+            if primary_free_space < MIN_PRIMARY_FREE_SPACE:
+                print(f"    ⚠️  PRIMARY below minimum threshold (free: {primary_free_space:.2f} GB < {MIN_PRIMARY_FREE_SPACE:.2f} GB)")
+            else:
+                print(f"    ⚠️  PRIMARY insufficient (free: {primary_free_space:.2f} GB, need: {required_space_gb:.2f} GB)")
             print(f"    ✓ Will save to BACKUP location (free: {backup_free_space:.2f} GB)")
         
         output_path = output_dir / output_filename
