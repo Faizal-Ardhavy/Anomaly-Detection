@@ -307,14 +307,29 @@ if __name__ == "__main__":
     # Example usage
     import sys
     
-    if len(sys.argv) < 3:
-        print("Usage: python bgl_log_preprocessing.py <input_file> <output_file> [--keep-duplicates]")
-        print("\nExample:")
-        print("  python bgl_log_preprocessing.py BGL.log BGL_preprocessed.txt")
-        sys.exit(1)
+    # Default paths
+    default_input = "../../dataset/BGL.log"
+    default_output = "../../after_preprocessed_dataset/after_preprocessed_bgl.txt"
     
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
+    # Check if custom paths provided
+    if len(sys.argv) >= 3:
+        input_file = sys.argv[1]
+        output_file = sys.argv[2]
+    elif len(sys.argv) == 2 and sys.argv[1] in ['--help', '-h']:
+        print("Usage: python bgl_log_preprocessing.py [input_file] [output_file] [--keep-duplicates]")
+        print("\nDefault:")
+        print(f"  Input:  {default_input}")
+        print(f"  Output: {default_output}")
+        print("\nExample:")
+        print("  python bgl_log_preprocessing.py")
+        print("  python bgl_log_preprocessing.py BGL.log BGL_preprocessed.txt")
+        print("  python bgl_log_preprocessing.py BGL.log BGL_preprocessed.txt --keep-duplicates")
+        sys.exit(0)
+    else:
+        # Use default paths
+        input_file = default_input
+        output_file = default_output
+    
     remove_dups = "--keep-duplicates" not in sys.argv
     
     process_bgl_file(input_file, output_file, remove_duplicates=remove_dups)
