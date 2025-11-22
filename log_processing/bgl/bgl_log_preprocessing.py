@@ -308,7 +308,7 @@ if __name__ == "__main__":
     import sys
     
     # Default paths
-    default_input = "../../dataset/BGL/BGL.log"
+    default_input = "../../../dataset/BGL/BGL.log"
     default_output = "../../after_preprocessed_dataset/after_preprocessed_bgl.txt"
     
     # Filter out Jupyter/IPython arguments (e.g., '-f')
