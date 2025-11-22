@@ -309,7 +309,7 @@ if __name__ == "__main__":
     
     # Default paths
     default_input = "../../../dataset/BGL/BGL.log"
-    default_output = "../../after_preprocessed_dataset/after_preprocessed_bgl.txt"
+    default_output = "../../../after_preprocessed_dataset/after_preprocessed_bgl.txt"
     
     # Filter out Jupyter/IPython arguments (e.g., '-f')
     filtered_args = [arg for arg in sys.argv if not arg.startswith('-f')]
