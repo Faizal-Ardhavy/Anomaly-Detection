@@ -308,14 +308,17 @@ if __name__ == "__main__":
     import sys
     
     # Default paths
-    default_input = "../../dataset/BGL.log"
+    default_input = "../../dataset/BGL/BGL.log"
     default_output = "../../after_preprocessed_dataset/after_preprocessed_bgl.txt"
     
+    # Filter out Jupyter/IPython arguments (e.g., '-f')
+    filtered_args = [arg for arg in sys.argv if not arg.startswith('-f')]
+    
     # Check if custom paths provided
-    if len(sys.argv) >= 3:
-        input_file = sys.argv[1]
-        output_file = sys.argv[2]
-    elif len(sys.argv) == 2 and sys.argv[1] in ['--help', '-h']:
+    if len(filtered_args) >= 3:
+        input_file = filtered_args[1]
+        output_file = filtered_args[2]
+    elif len(filtered_args) == 2 and filtered_args[1] in ['--help', '-h']:
         print("Usage: python bgl_log_preprocessing.py [input_file] [output_file] [--keep-duplicates]")
         print("\nDefault:")
         print(f"  Input:  {default_input}")
@@ -330,6 +333,6 @@ if __name__ == "__main__":
         input_file = default_input
         output_file = default_output
     
-    remove_dups = "--keep-duplicates" not in sys.argv
+    remove_dups = "--keep-duplicates" not in filtered_args
     
     process_bgl_file(input_file, output_file, remove_duplicates=remove_dups)
