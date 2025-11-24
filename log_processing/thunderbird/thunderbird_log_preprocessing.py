@@ -345,8 +345,8 @@ if __name__ == "__main__":
     import sys
     
     # Default paths
-    default_input = "../../dataset/Thunderbird.log"
-    default_output = "../../after_preprocessed_dataset/after_preprocessed_thunderbird.txt"
+    default_input = "../../../dataset/Thunderbird.log"
+    default_output = "../../../after_preprocessed_dataset/after_preprocessed_thunderbird.txt"
     
     # Filter out Jupyter/IPython arguments (e.g., '-f')
     filtered_args = [arg for arg in sys.argv if not arg.startswith('-f')]
