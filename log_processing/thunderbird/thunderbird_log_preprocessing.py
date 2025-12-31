@@ -4,6 +4,7 @@ Optimized for semantic preservation and BERT efficiency
 """
 
 import re
+import csv
 from typing import List
 from pathlib import Path
 
@@ -81,52 +82,68 @@ class ThunderbirdLogPreprocessor:
         - 1131523501 2005.11.09 aadmin1 Nov 10 00:05:01 src@aadmin1 in.tftpd[14620]: tftp: client does not accept options
         - 1131563443 2005.11.09 aadmin1 Nov 9 11:10:43 src@aadmin1 sshd[30057]: Accepted publickey for root from ::ffff:10.100.4.251 port 35558 ssh2
         """
-        # Remove leading "- " if present
-        line = line.strip()
+        # Preserve raw line and detect optional leading label marker
+        raw = line.rstrip('\n')
+        line = raw.strip()
+
+        label = ''
         if line.startswith('- '):
-            line = line[2:]
-        
-        # Split to get basic structure
+            label = '-'
+            line = line[2:].lstrip()
+
+        # Attempt robust split: unix_ts, date, host, sys_ts (3 tokens), source, remainder
         parts = line.split(maxsplit=7)
-        
-        if len(parts) < 8:
+        if len(parts) < 7:
             return None
-        
-        # Extract component and message from parts[7]
-        # Format: component[pid]: message or component[pid]: level: message
-        component_msg = parts[7]
-        
-        # Split by first colon to separate component[pid] from rest
-        if ':' not in component_msg:
+
+        unix_ts = parts[0]
+        date = parts[1]
+        host = parts[2]
+        sys_ts = ' '.join(parts[3:6]) if len(parts) >= 6 else ''
+        source = parts[6] if len(parts) >= 7 else ''
+
+        remainder = parts[7] if len(parts) >= 8 else ''
+        if not remainder:
             return None
-        
-        component_part, rest = component_msg.split(':', 1)
+
+        # remainder example: component[pid]: level: message  OR  component[pid]: message
+        if ':' not in remainder:
+            return None
+
+        component_part, rest = remainder.split(':', 1)
         rest = rest.strip()
-        
-        # Extract component name (remove [pid] if present)
+
+        # Extract PID if present
+        pid_match = re.search(r'\[(\d+)\]', component_part)
+        pid = pid_match.group(1) if pid_match else ''
+
+        # Clean component name
         component = re.sub(r'\[\d+\]', '', component_part).strip()
-        component = re.sub(r'\(pam_unix\)', '', component).strip()  # Remove (pam_unix)
-        
-        # If component is a full path, extract just the filename
+        component = re.sub(r'\(pam_unix\)', '', component).strip()
         if '/' in component:
-            component = component.split('/')[-1]  # Get last part after /
-        
-        # Check if rest starts with a log level
-        level = 'info'  # default
-        message = rest
-        
-        # Check if message starts with a known log level
-        rest_lower = rest.lower()
-        for lvl in self.log_levels:
-            if rest_lower.startswith(lvl + ':'):
-                level = lvl
-                message = rest[len(lvl)+1:].strip()
-                break
-        
+            component = component.split('/')[-1]
+
+        # Detect level at start of rest (e.g., "error: message")
+        level = 'info'
+        level_match = re.match(r'^(?P<lvl>' + '|'.join(self.log_levels) + r')\s*:\s*(?P<msg>.*)$', rest, re.IGNORECASE)
+        if level_match:
+            level = level_match.group('lvl').lower()
+            message = level_match.group('msg').strip()
+        else:
+            message = rest
+
         return {
+            'label': label,
+            'unix_ts': unix_ts,
+            'date': date,
+            'host': host,
+            'sys_ts': sys_ts,
+            'source': source,
             'component': component,
+            'pid': pid,
             'level': level,
-            'message': message
+            'message': message,
+            'raw': raw
         }
     
     def normalize_message(self, message: str) -> str:
@@ -150,8 +167,8 @@ class ThunderbirdLogPreprocessor:
         # 5. IPv4 addresses
         message = self.patterns['ipv4'].sub('<IP>', message)
         
-        # 6. Port numbers
-        message = self.patterns['port'].sub('port <NUM>', message)
+        # 6. Port numbers -> normalize to <PORT>
+        message = self.patterns['port'].sub('port <PORT>', message)
         
         # 7. File paths
         message = self.patterns['path'].sub('<PATH>', message)
@@ -200,25 +217,59 @@ class ThunderbirdLogPreprocessor:
             self.stats['empty_lines'] += 1
             return ""
         
-        # Parse line
+        # Parse line and extract metadata
         parsed = self.parse_thunderbird_line(line)
         if not parsed:
             self.stats['malformed_lines'] += 1
-            return ""
-        
-        # Normalize message
-        normalized_msg = self.normalize_message(parsed['message'])
-        
+            return "", None
+
+        # Build metadata: capture ips, ports, urls, emails, timestamps from raw message
+        raw_msg = parsed.get('message', '')
+        ips = self.patterns['ipv4'].findall(raw_msg) or []
+        ips6 = self.patterns['ipv6'].findall(raw_msg) or []
+        af_inet = self.patterns['af_inet'].findall(raw_msg) or []
+        urls = self.patterns['url'].findall(raw_msg) or []
+        emails = self.patterns['email'].findall(raw_msg) or []
+        ports = re.findall(r'port\s+(\d+)', raw_msg, re.IGNORECASE) or []
+        timestamps = self.patterns['timestamp'].findall(raw_msg) or []
+
+        # Normalize message: replace PID occurrences with <PID> if pid present
+        normalized_input = raw_msg
+        if parsed.get('pid'):
+            normalized_input = re.sub(r'\[' + re.escape(parsed['pid']) + r'\]', '<PID>', normalized_input)
+
+        normalized_msg = self.normalize_message(normalized_input)
+
         # Skip if message becomes empty after normalization
         if not normalized_msg:
             self.stats['skipped_lines'] += 1
-            return ""
-        
-        # Combine fields: [component] [level] [message]
-        preprocessed = f"{parsed['component'].lower()} {parsed['level'].lower()} {normalized_msg}"
-        
+            return "", None
+
+        # Only return the normalized message (no metadata) for dataset
+        preprocessed = normalized_msg
+
+        # Build metadata dictionary
+        metadata = {
+            'label': parsed.get('label', ''),
+            'unix_ts': parsed.get('unix_ts', ''),
+            'date': parsed.get('date', ''),
+            'host': parsed.get('host', ''),
+            'sys_ts': parsed.get('sys_ts', ''),
+            'source': parsed.get('source', ''),
+            'component': parsed.get('component', ''),
+            'pid': parsed.get('pid', ''),
+            'level': parsed.get('level', ''),
+            'ips': ips + ips6 + af_inet,
+            'ports': ports,
+            'urls': urls,
+            'emails': emails,
+            'timestamps': timestamps,
+            'raw_message': raw_msg,
+            'raw_line': parsed.get('raw', '')
+        }
+
         self.stats['processed_lines'] += 1
-        return preprocessed
+        return preprocessed, metadata
     
     def preprocess_logs(self, lines: List[str]) -> List[str]:
         """
@@ -228,13 +279,16 @@ class ThunderbirdLogPreprocessor:
             List of preprocessed log lines
         """
         preprocessed_lines = []
-        
+        metadata_list = []
+
         for line in lines:
-            preprocessed = self.preprocess_line(line)
-            if preprocessed:  # Only add non-empty lines
+            preprocessed, meta = self.preprocess_line(line)
+            if preprocessed:
                 preprocessed_lines.append(preprocessed)
-        
-        return preprocessed_lines
+            if meta:
+                metadata_list.append(meta)
+
+        return preprocessed_lines, metadata_list
     
     def remove_duplicates(self, logs: List[str]) -> List[str]:
         """
@@ -271,7 +325,7 @@ class ThunderbirdLogPreprocessor:
             self.stats[key] = 0
 
 
-def process_thunderbird_file(input_file: str, output_file: str, remove_duplicates: bool = True):
+def process_thunderbird_file(input_file: str, output_file: str, remove_duplicates: bool = True, sample_normal: int = None, sample_non: int = None):
     """
     Process Thunderbird log file and save preprocessed output
     
@@ -289,36 +343,109 @@ def process_thunderbird_file(input_file: str, output_file: str, remove_duplicate
     
     # Initialize preprocessor
     preprocessor = ThunderbirdLogPreprocessor()
-    
-    # Read input file
-    print(f"\n📖 Reading input file...")
-    with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
-        lines = f.readlines()
-    
-    print(f"✓ Read {len(lines):,} lines")
-    
-    # Preprocess
-    print(f"\n⚙️  Preprocessing logs...")
-    preprocessed_lines = preprocessor.preprocess_logs(lines)
-    
-    # Remove duplicates if requested
-    original_count = len(preprocessed_lines)
-    if remove_duplicates:
-        print(f"\n🔄 Removing duplicates...")
-        preprocessed_lines = preprocessor.remove_duplicates(preprocessed_lines)
-        duplicates_removed = original_count - len(preprocessed_lines)
-        print(f"✓ Removed {duplicates_removed:,} duplicates ({duplicates_removed/original_count*100:.2f}%)")
-    
-    # Save output
-    print(f"\n💾 Saving preprocessed logs...")
+
+    # Prepare output paths
     output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(output_file, 'w', encoding='utf-8') as f:
-        for line in preprocessed_lines:
-            f.write(line + '\n')
-    
-    print(f"✓ Saved {len(preprocessed_lines):,} lines to {output_file}")
+    meta_output_default = output_path.parent.parent / 'after_preprocessed_meta_data' / (output_path.name.replace('.txt', '') + '_meta.tsv')
+    meta_output = str(meta_output_default)
+
+    print(f"\n📖 Reading input file and streaming preprocessing...")
+    Path(output_path.parent).mkdir(parents=True, exist_ok=True)
+    Path(meta_output_default.parent).mkdir(parents=True, exist_ok=True)
+
+    total_lines = 0
+    # Sampling mode: collect up to sample_normal and sample_non lines only
+    if sample_normal is not None or sample_non is not None:
+        want_normal = sample_normal or 0
+        want_non = sample_non or 0
+        got_normal = 0
+        got_non = 0
+
+        with open(input_file, 'r', encoding='utf-8', errors='ignore') as inf, \
+             open(output_file, 'w', encoding='utf-8') as outf, \
+             open(meta_output, 'w', encoding='utf-8', newline='') as metaf:
+
+            writer = csv.writer(metaf, delimiter='\t')
+            header = ['label','unix_ts','date','host','sys_ts','source','component','pid','level',
+                      'ips','ports','urls','emails','timestamps','raw_message','raw_line']
+            writer.writerow(header)
+
+            for line in inf:
+                if got_normal >= want_normal and got_non >= want_non:
+                    break
+
+                parsed = preprocessor.parse_thunderbird_line(line)
+                # Determine label: '-' => normal, else non-normal
+                label = parsed.get('label') if parsed else ''
+                is_normal = (label == '-')
+
+                # Decide to include
+                if is_normal and got_normal < want_normal:
+                    preprocessed, meta = preprocessor.preprocess_line(line)
+                    outf.write((preprocessed or '') + '\n')
+                    if meta is None:
+                        meta = {'label': label or '', 'unix_ts':'','date':'','host':'','sys_ts':'','source':'','component':'','pid':'','level':'','ips':[],'ports':[],'urls':[],'emails':[],'timestamps':[],'raw_message':'','raw_line':line.rstrip('\n')}
+                    row = [meta.get('label',''), meta.get('unix_ts',''), meta.get('date',''), meta.get('host',''), meta.get('sys_ts',''), meta.get('source',''),
+                           meta.get('component',''), meta.get('pid',''), meta.get('level',''), '|'.join(meta.get('ips',[])), '|'.join(meta.get('ports',[])), '|'.join(meta.get('urls',[])),
+                           '|'.join(meta.get('emails',[])), '|'.join(meta.get('timestamps',[])), meta.get('raw_message',''), meta.get('raw_line','')]
+                    writer.writerow(row)
+                    got_normal += 1
+                    total_lines += 1
+
+                elif not is_normal and got_non < want_non:
+                    preprocessed, meta = preprocessor.preprocess_line(line)
+                    outf.write((preprocessed or '') + '\n')
+                    if meta is None:
+                        meta = {'label': label or '', 'unix_ts':'','date':'','host':'','sys_ts':'','source':'','component':'','pid':'','level':'','ips':[],'ports':[],'urls':[],'emails':[],'timestamps':[],'raw_message':'','raw_line':line.rstrip('\n')}
+                    row = [meta.get('label',''), meta.get('unix_ts',''), meta.get('date',''), meta.get('host',''), meta.get('sys_ts',''), meta.get('source',''),
+                           meta.get('component',''), meta.get('pid',''), meta.get('level',''), '|'.join(meta.get('ips',[])), '|'.join(meta.get('ports',[])), '|'.join(meta.get('urls',[])),
+                           '|'.join(meta.get('emails',[])), '|'.join(meta.get('timestamps',[])), meta.get('raw_message',''), meta.get('raw_line','')]
+                    writer.writerow(row)
+                    got_non += 1
+                    total_lines += 1
+
+        print(f"✓ Sampled {got_normal} normal and {got_non} non-normal lines and wrote {total_lines} records")
+    else:
+        with open(input_file, 'r', encoding='utf-8', errors='ignore') as inf, \
+             open(output_file, 'w', encoding='utf-8') as outf, \
+             open(meta_output, 'w', encoding='utf-8', newline='') as metaf:
+
+            writer = csv.writer(metaf, delimiter='\t')
+            # Write header for metadata TSV
+            header = ['label','unix_ts','date','host','sys_ts','source','component','pid','level',
+                      'ips','ports','urls','emails','timestamps','raw_message','raw_line']
+            writer.writerow(header)
+
+            for line in inf:
+                total_lines += 1
+                preprocessed, meta = preprocessor.preprocess_line(line)
+
+                # Write preprocessed message (one line per input line to keep alignment)
+                if preprocessed:
+                    outf.write(preprocessed + '\n')
+                else:
+                    outf.write('\n')
+
+                # Normalize metadata record even if meta is None
+                if meta is None:
+                    meta = {
+                        'label': '', 'unix_ts': '', 'date': '', 'host': '', 'sys_ts': '', 'source': '',
+                        'component': '', 'pid': '', 'level': '', 'ips': [], 'ports': [], 'urls': [],
+                        'emails': [], 'timestamps': [], 'raw_message': '', 'raw_line': line.rstrip('\n')
+                    }
+
+                # Flatten lists into pipes to keep TSV structure
+                row = [
+                    meta.get('label',''), meta.get('unix_ts',''), meta.get('date',''), meta.get('host',''), meta.get('sys_ts',''), meta.get('source',''),
+                    meta.get('component',''), meta.get('pid',''), meta.get('level',''),
+                    '|'.join(meta.get('ips',[])), '|'.join(meta.get('ports',[])), '|'.join(meta.get('urls',[])),
+                    '|'.join(meta.get('emails',[])), '|'.join(meta.get('timestamps',[])), meta.get('raw_message',''), meta.get('raw_line','')
+                ]
+                writer.writerow(row)
+
+        print(f"✓ Processed and wrote {total_lines:,} lines to dataset and metadata files")
+
+    print(f"✓ Processed and wrote {total_lines:,} lines to dataset and metadata files")
     
     # Print statistics
     preprocessor.print_stats()
@@ -370,6 +497,23 @@ if __name__ == "__main__":
         input_file = default_input
         output_file = default_output
     
+    # Parse optional flags
     remove_dups = "--keep-duplicates" not in filtered_args
-    
-    process_thunderbird_file(input_file, output_file, remove_duplicates=remove_dups)
+
+    # Sampling args
+    sample_normal = None
+    sample_non = None
+    if '--sample-normal' in filtered_args:
+        try:
+            idx = filtered_args.index('--sample-normal')
+            sample_normal = int(filtered_args[idx+1])
+        except Exception:
+            sample_normal = None
+    if '--sample-non' in filtered_args:
+        try:
+            idx = filtered_args.index('--sample-non')
+            sample_non = int(filtered_args[idx+1])
+        except Exception:
+            sample_non = None
+
+    process_thunderbird_file(input_file, output_file, remove_duplicates=remove_dups, sample_normal=sample_normal, sample_non=sample_non)
