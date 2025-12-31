@@ -4,6 +4,7 @@ Optimized for semantic preservation and BERT efficiency
 """
 
 import re
+import csv
 from typing import List, Set
 from pathlib import Path
 
@@ -70,14 +71,18 @@ class BGLLogPreprocessor:
         
         Note: Some logs have "- " prefix, need to skip it
         """
-        # Remove leading "- " if present
-        line = line.strip()
+        # Remove leading "- " if present, but preserve label
+        raw = line.rstrip('\n')
+        line = raw.strip()
+
+        label = ''
         if line.startswith('- '):
-            line = line[2:]
-        
+            label = '-'
+            line = line[2:].lstrip()
+
         # Check if first field is a label (not a timestamp)
         first_word = line.split(maxsplit=1)[0]
-        
+
         if first_word.isalpha() or (not first_word.isdigit()):
             # Format 2: has label prefix (e.g., "KERNMNTF")
             # [Label] [UNIX_TS] [Date] [Node] [Timestamp] [Node] [Component] [Subsystem] [Level] [Message...]
@@ -85,10 +90,17 @@ class BGLLogPreprocessor:
             if len(parts) < 10:
                 return None
             return {
+                'label': parts[0],
+                'unix_ts': parts[1],
+                'date': parts[2],
+                'node': parts[3],
+                'ts': parts[4],
+                'node_repeat': parts[5],
                 'component': parts[6],
                 'subsystem': parts[7],
                 'level': parts[8],
-                'message': parts[9]
+                'message': parts[9],
+                'raw': raw
             }
         else:
             # Format 1: no label prefix
@@ -97,10 +109,17 @@ class BGLLogPreprocessor:
             if len(parts) < 9:
                 return None
             return {
+                'label': label,
+                'unix_ts': parts[0],
+                'date': parts[1],
+                'node': parts[2],
+                'ts': parts[3],
+                'node_repeat': parts[4],
                 'component': parts[5],
                 'subsystem': parts[6],
                 'level': parts[7],
-                'message': parts[8]
+                'message': parts[8],
+                'raw': raw
             }
     
     def normalize_message(self, message: str) -> str:
@@ -162,26 +181,42 @@ class BGLLogPreprocessor:
             self.stats['empty_lines'] += 1
             return ""
         
-        # Parse line
+        # Parse line and extract metadata
         parsed = self.parse_bgl_line(line)
         if not parsed:
             self.stats['malformed_lines'] += 1
-            return ""
-        
+            return "", None
+
         # Normalize message
-        normalized_msg = self.normalize_message(parsed['message'])
-        
+        raw_msg = parsed.get('message', '')
+        normalized_msg = self.normalize_message(raw_msg)
+
         # Skip if message becomes empty after normalization
         if not normalized_msg:
             self.stats['skipped_lines'] += 1
-            return ""
-        
+            return "", None
+
         # Combine fields WITHOUT node ID
-        # Format: [component] [subsystem] [level] [message]
         preprocessed = f"{parsed['component'].lower()} {parsed['subsystem'].lower()} {parsed['level'].lower()} {normalized_msg}"
-        
+
+        # Build metadata
+        metadata = {
+            'label': parsed.get('label',''),
+            'unix_ts': parsed.get('unix_ts',''),
+            'date': parsed.get('date',''),
+            'node': parsed.get('node',''),
+            'ts': parsed.get('ts',''),
+            'node_repeat': parsed.get('node_repeat',''),
+            'component': parsed.get('component',''),
+            'subsystem': parsed.get('subsystem',''),
+            'level': parsed.get('level',''),
+            'ips': self.patterns['ip'].findall(raw_msg) or [],
+            'raw_message': raw_msg,
+            'raw_line': parsed.get('raw','')
+        }
+
         self.stats['processed_lines'] += 1
-        return preprocessed
+        return preprocessed, metadata
     
     def preprocess_logs(self, lines: List[str]) -> List[str]:
         """
@@ -253,35 +288,42 @@ def process_bgl_file(input_file: str, output_file: str, remove_duplicates: bool 
     # Initialize preprocessor
     preprocessor = BGLLogPreprocessor()
     
-    # Read input file
-    print(f"\n📖 Reading input file...")
-    with open(input_file, 'r', encoding='utf-8', errors='ignore') as f:
-        lines = f.readlines()
-    
-    print(f"✓ Read {len(lines):,} lines")
-    
-    # Preprocess
-    print(f"\n⚙️  Preprocessing logs...")
-    preprocessed_lines = preprocessor.preprocess_logs(lines)
-    
-    # Remove duplicates if requested
-    original_count = len(preprocessed_lines)
-    if remove_duplicates:
-        print(f"\n🔄 Removing duplicates...")
-        preprocessed_lines = preprocessor.remove_duplicates(preprocessed_lines)
-        duplicates_removed = original_count - len(preprocessed_lines)
-        print(f"✓ Removed {duplicates_removed:,} duplicates ({duplicates_removed/original_count*100:.2f}%)")
-    
-    # Save output
-    print(f"\n💾 Saving preprocessed logs...")
+    # Stream input and write messages + metadata TSV
     output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(output_file, 'w', encoding='utf-8') as f:
-        for line in preprocessed_lines:
-            f.write(line + '\n')
-    
-    print(f"✓ Saved {len(preprocessed_lines):,} lines to {output_file}")
+    meta_output_default = output_path.parent.parent / 'after_preprocessed_meta_data' / (output_path.name.replace('.txt','') + '_meta.tsv')
+    meta_output = str(meta_output_default)
+
+    Path(output_path.parent).mkdir(parents=True, exist_ok=True)
+    Path(meta_output_default.parent).mkdir(parents=True, exist_ok=True)
+
+    total_lines = 0
+    with open(input_file, 'r', encoding='utf-8', errors='ignore') as inf, \
+         open(output_file, 'w', encoding='utf-8') as outf, \
+         open(meta_output, 'w', encoding='utf-8', newline='') as metaf:
+
+        writer = csv.writer(metaf, delimiter='\t')
+        header = ['label','unix_ts','date','node','ts','node_repeat','component','subsystem','level','ips','raw_message','raw_line']
+        writer.writerow(header)
+
+        for line in inf:
+            total_lines += 1
+            preprocessed, meta = preprocessor.preprocess_line(line)
+
+            if preprocessed:
+                outf.write(preprocessed + '\n')
+            else:
+                outf.write('\n')
+
+            if meta is None:
+                meta = {'label':'','unix_ts':'','date':'','node':'','ts':'','node_repeat':'','component':'','subsystem':'','level':'','ips':[],'raw_message':'','raw_line':line.rstrip('\n')}
+
+            row = [
+                meta.get('label',''), meta.get('unix_ts',''), meta.get('date',''), meta.get('node',''), meta.get('ts',''), meta.get('node_repeat',''),
+                meta.get('component',''), meta.get('subsystem',''), meta.get('level',''), '|'.join(meta.get('ips',[])), meta.get('raw_message',''), meta.get('raw_line','')
+            ]
+            writer.writerow(row)
+
+    print(f"✓ Processed and wrote {total_lines:,} lines to dataset and metadata files")
     
     # Print statistics
     preprocessor.print_stats()
@@ -304,35 +346,27 @@ def process_bgl_file(input_file: str, output_file: str, remove_duplicates: bool 
 
 
 if __name__ == "__main__":
-    # Example usage
-    import sys
-    
-    # Default paths
+    # Example usage with argparse
+    import argparse
+
     default_input = "../../../dataset/BGL/BGL.log"
     default_output = "../../../after_preprocessed_dataset/after_preprocessed_bgl.txt"
-    
-    # Filter out Jupyter/IPython arguments (e.g., '-f')
-    filtered_args = [arg for arg in sys.argv if not arg.startswith('-f')]
-    
-    # Check if custom paths provided
-    if len(filtered_args) >= 3:
-        input_file = filtered_args[1]
-        output_file = filtered_args[2]
-    elif len(filtered_args) == 2 and filtered_args[1] in ['--help', '-h']:
-        print("Usage: python bgl_log_preprocessing.py [input_file] [output_file] [--keep-duplicates]")
-        print("\nDefault:")
-        print(f"  Input:  {default_input}")
-        print(f"  Output: {default_output}")
-        print("\nExample:")
-        print("  python bgl_log_preprocessing.py")
-        print("  python bgl_log_preprocessing.py BGL.log BGL_preprocessed.txt")
-        print("  python bgl_log_preprocessing.py BGL.log BGL_preprocessed.txt --keep-duplicates")
-        sys.exit(0)
-    else:
-        # Use default paths
-        input_file = default_input
-        output_file = default_output
-    
-    remove_dups = "--keep-duplicates" not in filtered_args
-    
+
+    parser = argparse.ArgumentParser(description='BGL log preprocessing')
+    parser.add_argument('input_file', nargs='?', default=default_input, help='Path to BGL.log')
+    parser.add_argument('output_file', nargs='?', default=default_output, help='Path to output preprocessed messages')
+    parser.add_argument('--remove-duplicates', action='store_true', help='Remove duplicate messages (after preprocessing)')
+    parser.add_argument('--sample-normal', type=int, default=None, help='Number of normal (label "-") lines to sample')
+    parser.add_argument('--sample-non', type=int, default=None, help='Number of non-normal lines to sample')
+    parser.add_argument('--meta-output', type=str, default=None, help='Path to metadata TSV output (overrides default)')
+
+    args = parser.parse_args()
+
+    input_file = args.input_file
+    output_file = args.output_file
+    remove_dups = True if getattr(args, 'remove_duplicates', False) else False
+    sample_normal = args.sample_normal
+    sample_non = args.sample_non
+
+    # TODO: meta-output override not yet wired into process function
     process_bgl_file(input_file, output_file, remove_duplicates=remove_dups)
