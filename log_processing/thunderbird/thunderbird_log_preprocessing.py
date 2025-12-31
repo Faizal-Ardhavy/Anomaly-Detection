@@ -472,7 +472,6 @@ if __name__ == "__main__":
     import argparse
     # Default paths
     default_input = "../../../dataset/Thunderbird.log"
-    default_input = "/media/bioinfo04/Expansion/dataset/Thunderbird.log"
     default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset/after_preprocessed_thunderbird.txt"
 
     parser = argparse.ArgumentParser(description='Thunderbird log preprocessing')

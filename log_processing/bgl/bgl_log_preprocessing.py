@@ -350,7 +350,6 @@ if __name__ == "__main__":
     import argparse
 
     default_input = "../../../dataset/BGL/BGL.log"
-    default_input = "/media/bioinfo04/Expansion/dataset/BGL/BGL.log"
     default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset/after_preprocessed_bgl.txt"
 
     parser = argparse.ArgumentParser(description='BGL log preprocessing')
