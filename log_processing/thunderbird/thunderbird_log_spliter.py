@@ -140,7 +140,8 @@ def main():
     print(f"Seen normal lines: {normal_seen:,}, collected: {len(normal_res):,}")
     print(f"Seen non-normal lines: {non_seen:,}, collected: {len(non_res):,}")
 
-    outdir = (Path(__file__).parent / args.outdir).resolve()
+    # Use the same directory as the input file for outputs
+    outdir = input_path.parent.resolve()
     normal_out = outdir / 'thunderbird_normal_testing.txt'
     non_out = outdir / 'thunderbird_non_normal_testing.txt'
 
@@ -152,6 +153,45 @@ def main():
 
     if len(normal_res) < normal_k or len(non_res) < non_k:
         print("Warning: requested sample size not met for one or both classes. See counts above.")
+
+    # --- Remove sampled lines from original file ---
+    print("Removing sampled lines from original file (creating temp then replacing)...")
+    # Build multiset (counts) of sampled lines to delete
+    from collections import Counter
+    to_delete = Counter()
+    for ln in normal_res:
+        to_delete[ln] += 1
+    for ln in non_res:
+        to_delete[ln] += 1
+
+    temp_path = input_path.parent / (input_path.name + '.tmp')
+    removed = 0
+    kept = 0
+    try:
+        with input_path.open('r', encoding='utf-8', errors='ignore') as infile, temp_path.open('w', encoding='utf-8') as outfile:
+            for line in infile:
+                line_stripped = line.rstrip('\n')
+                if to_delete.get(line_stripped, 0) > 0:
+                    to_delete[line_stripped] -= 1
+                    removed += 1
+                    continue
+                outfile.write(line)
+                kept += 1
+
+        # Replace original with temp
+        backup_path = input_path.parent / (input_path.name + '.bak')
+        # move original to backup then move temp to original
+        input_path.replace(backup_path)
+        temp_path.replace(input_path)
+
+        print(f"Removed {removed:,} lines from original file; backup saved at {backup_path}")
+    except Exception as e:
+        print(f"Error while removing lines: {e}")
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
 
 if __name__ == '__main__':
     main()
