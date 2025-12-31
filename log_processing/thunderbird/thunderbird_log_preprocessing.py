@@ -346,7 +346,7 @@ def process_thunderbird_file(input_file: str, output_file: str, remove_duplicate
 
     # Prepare output paths
     output_path = Path(output_file)
-    meta_output_default = output_path.parent.parent / 'after_preprocessed_meta_data' / (output_path.name.replace('.txt', '') + '_meta.tsv')
+    meta_output_default = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data") / (output_path.name.replace('.txt', '') + '_meta.tsv')
     meta_output = str(meta_output_default)
 
     print(f"\n📖 Reading input file and streaming preprocessing...")
@@ -472,7 +472,8 @@ if __name__ == "__main__":
     import argparse
     # Default paths
     default_input = "../../../dataset/Thunderbird.log"
-    default_output = "../../../after_preprocessed_dataset/after_preprocessed_thunderbird.txt"
+    default_input = "/media/bioinfo04/Expansion/dataset/Thunderbird.log"
+    default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset/after_preprocessed_thunderbird.txt"
 
     parser = argparse.ArgumentParser(description='Thunderbird log preprocessing')
     parser.add_argument('input_file', nargs='?', default=default_input, help='Path to Thunderbird.log')

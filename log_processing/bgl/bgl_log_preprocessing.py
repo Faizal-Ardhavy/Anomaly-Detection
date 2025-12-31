@@ -290,7 +290,7 @@ def process_bgl_file(input_file: str, output_file: str, remove_duplicates: bool 
     
     # Stream input and write messages + metadata TSV
     output_path = Path(output_file)
-    meta_output_default = output_path.parent.parent / 'after_preprocessed_meta_data' / (output_path.name.replace('.txt','') + '_meta.tsv')
+    meta_output_default = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data") / (output_path.name.replace('.txt','') + '_meta.tsv')
     meta_output = str(meta_output_default)
 
     Path(output_path.parent).mkdir(parents=True, exist_ok=True)
@@ -350,7 +350,8 @@ if __name__ == "__main__":
     import argparse
 
     default_input = "../../../dataset/BGL/BGL.log"
-    default_output = "../../../after_preprocessed_dataset/after_preprocessed_bgl.txt"
+    default_input = "/media/bioinfo04/Expansion/dataset/BGL/BGL.log"
+    default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset/after_preprocessed_bgl.txt"
 
     parser = argparse.ArgumentParser(description='BGL log preprocessing')
     parser.add_argument('input_file', nargs='?', default=default_input, help='Path to BGL.log')
