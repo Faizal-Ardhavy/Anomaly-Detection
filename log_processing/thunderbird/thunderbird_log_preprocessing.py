@@ -477,7 +477,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Thunderbird log preprocessing')
     parser.add_argument('input_file', nargs='?', default=default_input, help='Path to Thunderbird.log')
     parser.add_argument('output_file', nargs='?', default=default_output, help='Path to output preprocessed messages')
-    parser.add_argument('--keep-duplicates', action='store_true', help='Keep duplicate messages (do not remove duplicates)')
+    parser.add_argument('--remove-duplicates', action='store_true', help='Remove duplicate messages (after preprocessing)')
     parser.add_argument('--sample-normal', type=int, default=None, help='Number of normal (label "-") lines to sample')
     parser.add_argument('--sample-non', type=int, default=None, help='Number of non-normal lines to sample')
     parser.add_argument('--meta-output', type=str, default=None, help='Path to metadata TSV output (overrides default)')
@@ -486,7 +486,7 @@ if __name__ == "__main__":
 
     input_file = args.input_file
     output_file = args.output_file
-    remove_dups = not args.keep_duplicates
+    remove_dups = True if getattr(args, 'remove_duplicates', False) else False
     sample_normal = args.sample_normal
     sample_non = args.sample_non
 
