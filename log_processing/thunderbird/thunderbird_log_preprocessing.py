@@ -469,51 +469,28 @@ def process_thunderbird_file(input_file: str, output_file: str, remove_duplicate
 
 if __name__ == "__main__":
     # Example usage
-    import sys
-    
+    import argparse
     # Default paths
     default_input = "../../../dataset/Thunderbird.log"
     default_output = "../../../after_preprocessed_dataset/after_preprocessed_thunderbird.txt"
-    
-    # Filter out Jupyter/IPython arguments (e.g., '-f')
-    filtered_args = [arg for arg in sys.argv if not arg.startswith('-f')]
-    
-    # Check if custom paths provided
-    if len(filtered_args) >= 3:
-        input_file = filtered_args[1]
-        output_file = filtered_args[2]
-    elif len(filtered_args) == 2 and filtered_args[1] in ['--help', '-h']:
-        print("Usage: python thunderbird_log_preprocessing.py [input_file] [output_file] [--keep-duplicates]")
-        print("\nDefault:")
-        print(f"  Input:  {default_input}")
-        print(f"  Output: {default_output}")
-        print("\nExample:")
-        print("  python thunderbird_log_preprocessing.py")
-        print("  python thunderbird_log_preprocessing.py Thunderbird.log Thunderbird_preprocessed.txt")
-        print("  python thunderbird_log_preprocessing.py Thunderbird.log Thunderbird_preprocessed.txt --keep-duplicates")
-        sys.exit(0)
-    else:
-        # Use default paths
-        input_file = default_input
-        output_file = default_output
-    
-    # Parse optional flags
-    remove_dups = "--keep-duplicates" not in filtered_args
 
-    # Sampling args
-    sample_normal = None
-    sample_non = None
-    if '--sample-normal' in filtered_args:
-        try:
-            idx = filtered_args.index('--sample-normal')
-            sample_normal = int(filtered_args[idx+1])
-        except Exception:
-            sample_normal = None
-    if '--sample-non' in filtered_args:
-        try:
-            idx = filtered_args.index('--sample-non')
-            sample_non = int(filtered_args[idx+1])
-        except Exception:
-            sample_non = None
+    parser = argparse.ArgumentParser(description='Thunderbird log preprocessing')
+    parser.add_argument('input_file', nargs='?', default=default_input, help='Path to Thunderbird.log')
+    parser.add_argument('output_file', nargs='?', default=default_output, help='Path to output preprocessed messages')
+    parser.add_argument('--keep-duplicates', action='store_true', help='Keep duplicate messages (do not remove duplicates)')
+    parser.add_argument('--sample-normal', type=int, default=None, help='Number of normal (label "-") lines to sample')
+    parser.add_argument('--sample-non', type=int, default=None, help='Number of non-normal lines to sample')
+    parser.add_argument('--meta-output', type=str, default=None, help='Path to metadata TSV output (overrides default)')
+
+    args = parser.parse_args()
+
+    input_file = args.input_file
+    output_file = args.output_file
+    remove_dups = not args.keep_duplicates
+    sample_normal = args.sample_normal
+    sample_non = args.sample_non
+
+    # If user provided meta-output, adjust internal meta path (not currently used)
+    meta_override = args.meta_output if args.meta_output else None
 
     process_thunderbird_file(input_file, output_file, remove_duplicates=remove_dups, sample_normal=sample_normal, sample_non=sample_non)
