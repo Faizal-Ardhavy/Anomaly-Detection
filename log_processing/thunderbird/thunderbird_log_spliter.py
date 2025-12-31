@@ -42,13 +42,20 @@ def is_normal_line(line: str) -> bool:
     return first == '-'
 
 
-def reservoir_sample_two_classes(input_file: Path, normal_k: int, non_k: int, seed: int = 42):
+def reservoir_sample_two_classes(input_file: Path, normal_k: int, non_k: int, seed: int = 42, show_progress: bool = False):
     random.seed(seed)
     normal_res = []
     non_res = []
     normal_seen = 0
     non_seen = 0
 
+    total_size = 0
+    try:
+        total_size = input_file.stat().st_size
+    except Exception:
+        total_size = 0
+
+    last_percent = -1
     with input_file.open('r', encoding='utf-8', errors='ignore') as f:
         for line in f:
             # keep original line as-is (do not preprocess)
@@ -68,6 +75,20 @@ def reservoir_sample_two_classes(input_file: Path, normal_k: int, non_k: int, se
                     r = random.randint(0, non_seen - 1)
                     if r < non_k:
                         non_res[r] = line.rstrip('\n')
+
+            if show_progress and total_size > 0:
+                try:
+                    pos = f.tell()
+                    percent = int(pos * 100 / total_size)
+                except Exception:
+                    percent = -1
+                if percent != last_percent and percent >= 0:
+                    print(f"Progress: {percent}%\r", end='', flush=True)
+                    last_percent = percent
+
+    if show_progress and total_size > 0:
+        print('\n', end='')
+
     return normal_res, non_res, normal_seen, non_seen
 
 
