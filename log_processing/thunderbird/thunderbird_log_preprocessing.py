@@ -354,6 +354,7 @@ def process_thunderbird_file(input_file: str, output_file: str, remove_duplicate
     Path(meta_output_default.parent).mkdir(parents=True, exist_ok=True)
 
     total_lines = 0
+    written_lines = 0
     # Sampling mode: collect up to sample_normal and sample_non lines only
     if sample_normal is not None or sample_non is not None:
         want_normal = sample_normal or 0
@@ -420,19 +421,12 @@ def process_thunderbird_file(input_file: str, output_file: str, remove_duplicate
                 total_lines += 1
                 preprocessed, meta = preprocessor.preprocess_line(line)
 
-                # Write preprocessed message (one line per input line to keep alignment)
-                if preprocessed:
-                    outf.write(preprocessed + '\n')
-                else:
-                    outf.write('\n')
+                # Only write records when preprocessing produced a valid entry
+                if not preprocessed or meta is None:
+                    continue
 
-                # Normalize metadata record even if meta is None
-                if meta is None:
-                    meta = {
-                        'label': '', 'unix_ts': '', 'date': '', 'host': '', 'sys_ts': '', 'source': '',
-                        'component': '', 'pid': '', 'level': '', 'ips': [], 'ports': [], 'urls': [],
-                        'emails': [], 'timestamps': [], 'raw_message': '', 'raw_line': line.rstrip('\n')
-                    }
+                # Write preprocessed message and metadata in lock-step
+                outf.write(preprocessed + '\n')
 
                 # Flatten lists into pipes to keep TSV structure
                 row = [
@@ -442,10 +436,17 @@ def process_thunderbird_file(input_file: str, output_file: str, remove_duplicate
                     '|'.join(meta.get('emails',[])), '|'.join(meta.get('timestamps',[])), meta.get('raw_message',''), meta.get('raw_line','')
                 ]
                 writer.writerow(row)
+                written_lines += 1
 
-        print(f"✓ Processed and wrote {total_lines:,} lines to dataset and metadata files")
+        print(f"✓ Processed and wrote {written_lines:,} lines to dataset and metadata files")
 
-    print(f"✓ Processed and wrote {total_lines:,} lines to dataset and metadata files")
+    # If sampling branch used, written_lines will have been updated there.
+    # For the non-sampling branch we printed written_lines above; print final tally here too.
+    try:
+        final_written = written_lines
+    except NameError:
+        final_written = total_lines
+    print(f"✓ Processed and wrote {final_written:,} lines to dataset and metadata files")
     
     # Print statistics
     preprocessor.print_stats()

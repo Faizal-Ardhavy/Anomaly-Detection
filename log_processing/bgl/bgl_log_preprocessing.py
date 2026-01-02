@@ -297,9 +297,10 @@ def process_bgl_file(input_file: str, output_file: str, remove_duplicates: bool 
     Path(meta_output_default.parent).mkdir(parents=True, exist_ok=True)
 
     total_lines = 0
+    written_lines = 0
     with open(input_file, 'r', encoding='utf-8', errors='ignore') as inf, \
-         open(output_file, 'w', encoding='utf-8') as outf, \
-         open(meta_output, 'w', encoding='utf-8', newline='') as metaf:
+        open(output_file, 'w', encoding='utf-8') as outf, \
+        open(meta_output, 'w', encoding='utf-8', newline='') as metaf:
 
         writer = csv.writer(metaf, delimiter='\t')
         header = ['label','unix_ts','date','node','ts','node_repeat','component','subsystem','level','ips','raw_message','raw_line']
@@ -309,21 +310,20 @@ def process_bgl_file(input_file: str, output_file: str, remove_duplicates: bool 
             total_lines += 1
             preprocessed, meta = preprocessor.preprocess_line(line)
 
-            if preprocessed:
-                outf.write(preprocessed + '\n')
-            else:
-                outf.write('\n')
+            # Only write when preprocessing produced a valid entry and metadata
+            if not preprocessed or meta is None:
+                continue
 
-            if meta is None:
-                meta = {'label':'','unix_ts':'','date':'','node':'','ts':'','node_repeat':'','component':'','subsystem':'','level':'','ips':[],'raw_message':'','raw_line':line.rstrip('\n')}
+            outf.write(preprocessed + '\n')
 
             row = [
                 meta.get('label',''), meta.get('unix_ts',''), meta.get('date',''), meta.get('node',''), meta.get('ts',''), meta.get('node_repeat',''),
                 meta.get('component',''), meta.get('subsystem',''), meta.get('level',''), '|'.join(meta.get('ips',[])), meta.get('raw_message',''), meta.get('raw_line','')
             ]
             writer.writerow(row)
+            written_lines += 1
 
-    print(f"✓ Processed and wrote {total_lines:,} lines to dataset and metadata files")
+    print(f"✓ Processed and wrote {written_lines:,} lines to dataset and metadata files")
     
     # Print statistics
     preprocessor.print_stats()
