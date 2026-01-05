@@ -9,6 +9,7 @@ from tqdm import tqdm
 import time
 import gc
 import shutil
+import json
 
 load_dotenv('account.env')
 login(os.getenv("HUGGINGFACE_TOKEN"))
@@ -37,6 +38,35 @@ def check_memory_safety(required_gb=2.0):
         if mem_info['available_gb'] < required_gb:
             return False, mem_info
     return True, mem_info
+
+
+# ============================================================================
+# CHECKPOINT HELPERS
+# ============================================================================
+def load_checkpoint(path: Path):
+    try:
+        if path.exists():
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception:
+        return None
+    return None
+
+def save_checkpoint(path: Path, data: dict):
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
+    except Exception:
+        pass
+
+def remove_checkpoint(path: Path):
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception:
+        pass
 
 def process_text_chunk(lines_chunk, batch_size, tokenizer, model, device):
     """
@@ -334,16 +364,44 @@ for file_idx, txt_file in enumerate(txt_files, 1):
             print(f"    📦 Will process in {num_chunks:,} chunks of {CHUNK_SIZE:,} lines each")
             
             # Use memmap untuk large arrays (disk-backed, tidak dimuat ke RAM sekaligus)
-            embeddings_memmap = np.memmap(
-                output_path, 
-                dtype='float32', 
-                mode='w+', 
-                shape=(total_lines, 768)
-            )
-            
+            checkpoint_path = output_path.with_suffix('.progress.json')
+
+            # Try to resume if checkpoint exists
+            ckpt = load_checkpoint(checkpoint_path)
+            if output_path.exists() and ckpt is not None:
+                try:
+                    embeddings_memmap = np.memmap(
+                        output_path,
+                        dtype='float32',
+                        mode='r+',
+                        shape=(total_lines, 768)
+                    )
+                    current_line_idx = int(ckpt.get('written', 0))
+                    print(f"    ↩️  Resuming from checkpoint: {current_line_idx} / {total_lines} lines")
+                except Exception:
+                    # Fallback to fresh memmap
+                    embeddings_memmap = np.memmap(
+                        output_path,
+                        dtype='float32',
+                        mode='w+',
+                        shape=(total_lines, 768)
+                    )
+                    current_line_idx = 0
+            else:
+                embeddings_memmap = np.memmap(
+                    output_path, 
+                    dtype='float32', 
+                    mode='w+', 
+                    shape=(total_lines, 768)
+                )
+                current_line_idx = 0
+
+            # Initialize checkpoint file
+            save_checkpoint(checkpoint_path, {'written': current_line_idx, 'total': total_lines})
+
             # Process file chunk by chunk
-            current_line_idx = 0
             chunk_buffer = []
+            chunk_count = 0
             
             # Reduce batch size drastically for ultra large files
             ultra_batch_size = 64  # Very conservative
@@ -377,6 +435,11 @@ for file_idx, txt_file in enumerate(txt_files, 1):
                             # Update progress
                             pbar.update(len(chunk_buffer))
                             current_line_idx = end_idx
+                            chunk_count += 1
+
+                            # Periodically update checkpoint to allow resume
+                            if chunk_count % 10 == 0:
+                                save_checkpoint(checkpoint_path, {'written': current_line_idx, 'total': total_lines})
                             
                             # Clear chunk buffer
                             chunk_buffer = []
@@ -399,11 +462,15 @@ for file_idx, txt_file in enumerate(txt_files, 1):
                         end_idx = current_line_idx + len(chunk_buffer)
                         embeddings_memmap[current_line_idx:end_idx] = chunk_embeddings
                         pbar.update(len(chunk_buffer))
+                        chunk_count += 1
+                        # update checkpoint after final small chunk
+                        save_checkpoint(checkpoint_path, {'written': current_line_idx + len(chunk_buffer), 'total': total_lines})
                         del chunk_embeddings
             
-            # Flush memmap to disk
+            # Flush memmap to disk and remove checkpoint
             embeddings_memmap.flush()
             del embeddings_memmap
+            remove_checkpoint(checkpoint_path)
             
             # Verify and report
             file_size_mb = output_path.stat().st_size / (1024 * 1024)
