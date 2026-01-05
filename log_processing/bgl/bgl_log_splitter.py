@@ -98,7 +98,7 @@ def write_lines(lines, path: Path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', '-i', help='Path to BGL log file (optional)')
-    parser.add_argument('--total', type=int, default=2000000, help='Total number of samples to extract')
+    parser.add_argument('--total', type=int, default=800000, help='Total number of samples to extract')
     parser.add_argument('--ratio', type=float, default=0.7, help='Fraction of normal samples (0-1)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--progress', action='store_true', help='Show progress')
