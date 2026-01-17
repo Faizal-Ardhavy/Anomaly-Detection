@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """
 POST-PROCESSING PIPELINE (FINAL)
 ================================
@@ -22,6 +19,7 @@ from tqdm import tqdm
 import time
 import gc
 import json
+import pickle
 
 # =============================================================================
 # CONFIG
@@ -31,6 +29,7 @@ INPUT_DIR = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector")
 OUT_NORM = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_normalized")
 OUT_PCA256 = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256")
 OUT_PCA128 = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca128")
+CHECKPOINT_FILE = Path("/media/bioinfo04/Expansion/2427051003_checkpoint.json")
 
 EMBEDDING_DIMS = 768
 DTYPE = np.float32
@@ -73,6 +72,26 @@ def load_embeddings_auto(path: Path, num_rows: int):
 def save_memmap(path, shape):
     return np.memmap(path, dtype=DTYPE, mode="w+", shape=shape)
 
+def load_checkpoint():
+    """Load checkpoint jika ada"""
+    if CHECKPOINT_FILE.exists():
+        with open(CHECKPOINT_FILE, 'r') as f:
+            return json.load(f)
+    return {"pca_fitted": False, "completed_files": []}
+
+def save_checkpoint(checkpoint):
+    """Save checkpoint progress"""
+    with open(CHECKPOINT_FILE, 'w') as f:
+        json.dump(checkpoint, f, indent=2)
+    print(f"💾 Checkpoint saved: {len(checkpoint['completed_files'])} files done")
+
+# =============================================================================
+# STEP 0 — LOAD CHECKPOINT
+# =============================================================================
+
+checkpoint = load_checkpoint()
+print(f"\n📋 Checkpoint loaded: PCA fitted={checkpoint['pca_fitted']}, Completed={len(checkpoint['completed_files'])}")
+
 # =============================================================================
 # STEP 1 — SCAN FILES
 # =============================================================================
@@ -109,30 +128,42 @@ print(f"✓ Total samples: {total_samples:,}")
 # STEP 2 — FIT PCA (INCREMENTAL)
 # =============================================================================
 
-print("\n🧠 Fitting Incremental PCA...")
-pca256 = IncrementalPCA(n_components=PCA_256_DIMS, batch_size=BATCH_SIZE)
-pca128 = IncrementalPCA(n_components=PCA_128_DIMS, batch_size=BATCH_SIZE)
+pca256_model_path = OUT_PCA256 / "pca_model_256.pkl"
+pca128_model_path = OUT_PCA128 / "pca_model_128.pkl"
 
-with tqdm(total=total_samples, desc="PCA fit", unit="rows") as pbar:
-    for info in file_info:
-        emb, _ = load_embeddings_auto(info["path"], info["rows"])
+if checkpoint["pca_fitted"] and pca256_model_path.exists() and pca128_model_path.exists():
+    print("\n♻️ Loading existing PCA models...")
+    pca256 = joblib.load(pca256_model_path)
+    pca128 = joblib.load(pca128_model_path)
+    print("✓ PCA models loaded from checkpoint")
+else:
+    print("\n🧠 Fitting Incremental PCA...")
+    pca256 = IncrementalPCA(n_components=PCA_256_DIMS, batch_size=BATCH_SIZE)
+    pca128 = IncrementalPCA(n_components=PCA_128_DIMS, batch_size=BATCH_SIZE)
 
-        for start in range(0, info["rows"], BATCH_SIZE):
-            end = min(start + BATCH_SIZE, info["rows"])
-            batch = emb[start:end]
-            batch = normalize(batch, axis=1)
+    with tqdm(total=total_samples, desc="PCA fit", unit="rows") as pbar:
+        for info in file_info:
+            emb, _ = load_embeddings_auto(info["path"], info["rows"])
 
-            pca256.partial_fit(batch)
-            pca128.partial_fit(batch)
+            for start in range(0, info["rows"], BATCH_SIZE):
+                end = min(start + BATCH_SIZE, info["rows"])
+                batch = emb[start:end]
+                batch = normalize(batch, axis=1)
 
-            pbar.update(end - start)
-            del batch
-            gc.collect()
+                pca256.partial_fit(batch)
+                pca128.partial_fit(batch)
 
-print("✓ PCA fitting done")
+                pbar.update(end - start)
+                del batch
+                gc.collect()
 
-joblib.dump(pca256, OUT_PCA256 / "pca_model_256.pkl")
-joblib.dump(pca128, OUT_PCA128 / "pca_model_128.pkl")
+    print("✓ PCA fitting done")
+
+    joblib.dump(pca256, pca256_model_path)
+    joblib.dump(pca128, pca128_model_path)
+    
+    checkpoint["pca_fitted"] = True
+    save_checkpoint(checkpoint)
 
 # =============================================================================
 # STEP 3 — TRANSFORM FILES
@@ -141,6 +172,11 @@ joblib.dump(pca128, OUT_PCA128 / "pca_model_128.pkl")
 print("\n🔄 Transforming files...")
 
 for info in file_info:
+    # Skip jika sudah selesai
+    if info["name"] in checkpoint["completed_files"]:
+        print(f"\n⏭️ SKIP {info['name']} (already completed)")
+        continue
+    
     print(f"\n➡ {info['name']} ({info['rows']:,} rows)")
     emb, is_raw = load_embeddings_auto(info["path"], info["rows"])
     is_large = info["rows"] > LARGE_FILE_THRESHOLD
@@ -149,6 +185,27 @@ for info in file_info:
     norm_path = OUT_NORM / info["name"].replace("_embeddings.npy", "_normalized_embeddings.npy")
     pca256_path = OUT_PCA256 / info["name"].replace("_embeddings.npy", "_pca256_embeddings.npy")
     pca128_path = OUT_PCA128 / info["name"].replace("_embeddings.npy", "_pca128_embeddings.npy")
+    
+    # Cek apakah output sudah ada dan valid
+    if norm_path.exists() and pca256_path.exists() and pca128_path.exists():
+        try:
+            # Verifikasi ukuran file output
+            if is_large:
+                test_norm = np.memmap(norm_path, dtype=DTYPE, mode='r', shape=(info["rows"], EMBEDDING_DIMS))
+                test_256 = np.memmap(pca256_path, dtype=DTYPE, mode='r', shape=(info["rows"], PCA_256_DIMS))
+                test_128 = np.memmap(pca128_path, dtype=DTYPE, mode='r', shape=(info["rows"], PCA_128_DIMS))
+                del test_norm, test_256, test_128
+            else:
+                test_norm = np.load(norm_path, mmap_mode='r')
+                test_256 = np.load(pca256_path, mmap_mode='r')
+                test_128 = np.load(pca128_path, mmap_mode='r')
+                if test_norm.shape[0] == info["rows"] and test_256.shape[0] == info["rows"] and test_128.shape[0] == info["rows"]:
+                    print("   ✓ Valid output files exist, marking as complete")
+                    checkpoint["completed_files"].append(info["name"])
+                    save_checkpoint(checkpoint)
+                    continue
+        except Exception as e:
+            print(f"   ⚠️ Invalid output files, reprocessing: {e}")
 
     if is_large:
         out_norm = save_memmap(norm_path, (info["rows"], EMBEDDING_DIMS))
@@ -182,6 +239,10 @@ for info in file_info:
         np.save(pca128_path, pca128_all)
 
     print("   ✓ done")
+    
+    # Mark file as completed
+    checkpoint["completed_files"].append(info["name"])
+    save_checkpoint(checkpoint)
 
 # =============================================================================
 # METADATA
@@ -196,5 +257,10 @@ meta = {
 
 with open(OUT_PCA256.parent / "pca_metadata.json", "w") as f:
     json.dump(meta, f, indent=2)
+
+# Cleanup checkpoint file after successful completion
+if CHECKPOINT_FILE.exists():
+    CHECKPOINT_FILE.unlink()
+    print("🗑️ Checkpoint file removed (pipeline completed)")
 
 print("\n✅ PIPELINE COMPLETE (SAFE FOR 200M+ ROWS)")
