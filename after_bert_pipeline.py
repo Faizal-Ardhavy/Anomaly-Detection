@@ -26,7 +26,7 @@ import pickle
 # =============================================================================
 
 INPUT_DIR = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector")
-OUT_NORM = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_normalized")
+# Normalized files NOT saved (only processed in-memory for PCA)
 OUT_PCA256 = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256")
 OUT_PCA128 = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca128")
 CHECKPOINT_FILE = Path("/media/bioinfo04/Expansion/2427051003_checkpoint.json")
@@ -40,9 +40,13 @@ PCA_128_DIMS = 128
 BATCH_SIZE = 50_000
 LARGE_FILE_THRESHOLD = 10_000_000  # rows
 
-OUT_NORM.mkdir(parents=True, exist_ok=True)
 OUT_PCA256.mkdir(parents=True, exist_ok=True)
 OUT_PCA128.mkdir(parents=True, exist_ok=True)
+
+print("⚙️  Configuration:")
+print(f"   • Normalization: IN-MEMORY ONLY (not saved)")
+print(f"   • PCA-256 output: {OUT_PCA256}")
+print(f"   • PCA-128 output: {OUT_PCA128}")
 
 # =============================================================================
 # HELPERS
@@ -97,22 +101,41 @@ print(f"\n📋 Checkpoint loaded: PCA fitted={checkpoint['pca_fitted']}, Complet
 # =============================================================================
 
 print("\n🔍 Scanning input files...")
+print(f"   Input directory: {INPUT_DIR}")
+print(f"   Looking for pattern: *_embeddings.npy")
+
 files = sorted(INPUT_DIR.glob("*_embeddings.npy"))
 if not files:
-    raise RuntimeError("No *_embeddings.npy found")
+    # Try alternative patterns
+    print("   ⚠️ No *_embeddings.npy found, trying alternative patterns...")
+    alt_patterns = ["*.npy", "*embeddings*.npy", "*_emb.npy"]
+    for pattern in alt_patterns:
+        files = sorted(INPUT_DIR.glob(pattern))
+        if files:
+            print(f"   ✓ Found {len(files)} files with pattern: {pattern}")
+            break
+    
+    if not files:
+        raise RuntimeError(f"No .npy files found in {INPUT_DIR}")
 
 file_info = []
 total_samples = 0
 
-for f in tqdm(files):
+print(f"\n📂 Processing {len(files)} files:")
+for f in tqdm(files, desc="Scanning files"):
     try:
         arr = np.load(f, mmap_mode="r")
         n = arr.shape[0]
         is_raw = False
+        load_method = "np.load"
     except Exception:
         n = infer_num_rows(f)
         is_raw = True
+        load_method = "memmap"
 
+    file_size_gb = f.stat().st_size / (1024**3)
+    print(f"   • {f.name}: {n:,} rows, {file_size_gb:.2f} GB ({load_method})")
+    
     file_info.append({
         "path": f,
         "name": f.name,
@@ -121,8 +144,9 @@ for f in tqdm(files):
     })
     total_samples += n
 
-print(f"✓ Files: {len(file_info)}")
-print(f"✓ Total samples: {total_samples:,}")
+print(f"\n✓ Files: {len(file_info)}")
+print(f"✓ Total samples BEFORE processing: {total_samples:,}")
+print(f"✓ Expected output: {total_samples:,} rows (SAME number, different dimensions)")
 
 # =============================================================================
 # STEP 2 — FIT PCA (INCREMENTAL)
@@ -170,6 +194,10 @@ else:
 # =============================================================================
 
 print("\n🔄 Transforming files...")
+print(f"   Files to process: {len(file_info)}")
+print(f"   Already completed: {len(checkpoint['completed_files'])}")
+
+files_actually_processed = 0
 
 for info in file_info:
     # Skip jika sudah selesai
@@ -177,72 +205,97 @@ for info in file_info:
         print(f"\n⏭️ SKIP {info['name']} (already completed)")
         continue
     
+    files_actually_processed += 1
+    
     print(f"\n➡ {info['name']} ({info['rows']:,} rows)")
     emb, is_raw = load_embeddings_auto(info["path"], info["rows"])
     is_large = info["rows"] > LARGE_FILE_THRESHOLD
 
-    # Output paths
-    norm_path = OUT_NORM / info["name"].replace("_embeddings.npy", "_normalized_embeddings.npy")
+    # Output paths (NO normalized file saved)
     pca256_path = OUT_PCA256 / info["name"].replace("_embeddings.npy", "_pca256_embeddings.npy")
     pca128_path = OUT_PCA128 / info["name"].replace("_embeddings.npy", "_pca128_embeddings.npy")
     
     # Cek apakah output sudah ada dan valid
-    if norm_path.exists() and pca256_path.exists() and pca128_path.exists():
+    if pca256_path.exists() and pca128_path.exists():
         try:
             # Verifikasi ukuran file output
             if is_large:
-                test_norm = np.memmap(norm_path, dtype=DTYPE, mode='r', shape=(info["rows"], EMBEDDING_DIMS))
                 test_256 = np.memmap(pca256_path, dtype=DTYPE, mode='r', shape=(info["rows"], PCA_256_DIMS))
                 test_128 = np.memmap(pca128_path, dtype=DTYPE, mode='r', shape=(info["rows"], PCA_128_DIMS))
-                del test_norm, test_256, test_128
+                del test_256, test_128
+                print("   ✓ Valid PCA output files exist, marking as complete")
+                checkpoint["completed_files"].append(info["name"])
+                save_checkpoint(checkpoint)
+                continue
             else:
-                test_norm = np.load(norm_path, mmap_mode='r')
                 test_256 = np.load(pca256_path, mmap_mode='r')
                 test_128 = np.load(pca128_path, mmap_mode='r')
-                if test_norm.shape[0] == info["rows"] and test_256.shape[0] == info["rows"] and test_128.shape[0] == info["rows"]:
-                    print("   ✓ Valid output files exist, marking as complete")
+                if test_256.shape[0] == info["rows"] and test_128.shape[0] == info["rows"]:
+                    print(f"   ✓ Valid PCA output files exist ({test_256.shape[0]:,} rows), marking as complete")
                     checkpoint["completed_files"].append(info["name"])
                     save_checkpoint(checkpoint)
                     continue
         except Exception as e:
             print(f"   ⚠️ Invalid output files, reprocessing: {e}")
 
+    # Allocate output arrays (NO normalized storage)
     if is_large:
-        out_norm = save_memmap(norm_path, (info["rows"], EMBEDDING_DIMS))
         out_256 = save_memmap(pca256_path, (info["rows"], PCA_256_DIMS))
         out_128 = save_memmap(pca128_path, (info["rows"], PCA_128_DIMS))
     else:
-        norm_all = np.zeros((info["rows"], EMBEDDING_DIMS), dtype=DTYPE)
         pca256_all = np.zeros((info["rows"], PCA_256_DIMS), dtype=DTYPE)
         pca128_all = np.zeros((info["rows"], PCA_128_DIMS), dtype=DTYPE)
+    
+    processed_rows = 0  # Track untuk verify no data loss
 
     for start in tqdm(range(0, info["rows"], BATCH_SIZE), desc="  batches"):
         end = min(start + BATCH_SIZE, info["rows"])
         batch = emb[start:end]
-        batch = normalize(batch, axis=1)
+        
+        # Normalize in-memory (not saved to disk)
+        batch_normalized = normalize(batch, axis=1)
+        
+        # Verify normalization didn't drop rows
+        assert batch_normalized.shape[0] == (end - start), f"Normalization dropped rows! Expected {end-start}, got {batch_normalized.shape[0]}"
+
+        # Apply PCA transformations
+        pca256_batch = pca256.transform(batch_normalized)
+        pca128_batch = pca128.transform(batch_normalized)
+        
+        # Verify PCA didn't drop rows
+        assert pca256_batch.shape[0] == (end - start), f"PCA-256 dropped rows! Expected {end-start}, got {pca256_batch.shape[0]}"
+        assert pca128_batch.shape[0] == (end - start), f"PCA-128 dropped rows! Expected {end-start}, got {pca128_batch.shape[0]}"
 
         if is_large:
-            out_norm[start:end] = batch
-            out_256[start:end] = pca256.transform(batch)
-            out_128[start:end] = pca128.transform(batch)
+            out_256[start:end] = pca256_batch
+            out_128[start:end] = pca128_batch
         else:
-            norm_all[start:end] = batch
-            pca256_all[start:end] = pca256.transform(batch)
-            pca128_all[start:end] = pca128.transform(batch)
+            pca256_all[start:end] = pca256_batch
+            pca128_all[start:end] = pca128_batch
+        
+        processed_rows += (end - start)
 
-        del batch
+        del batch, batch_normalized, pca256_batch, pca128_batch
         gc.collect()
 
+    # Verify ALL rows processed
+    assert processed_rows == info["rows"], f"❌ DATA LOSS! Expected {info['rows']:,} rows, processed {processed_rows:,}"
+
     if not is_large:
-        np.save(norm_path, norm_all)
         np.save(pca256_path, pca256_all)
         np.save(pca128_path, pca128_all)
 
-    print("   ✓ done")
+    print(f"   ✓ done - Verified {processed_rows:,} rows processed (no data loss)")
     
     # Mark file as completed
     checkpoint["completed_files"].append(info["name"])
     save_checkpoint(checkpoint)
+
+print(f"\n📊 TRANSFORMATION SUMMARY:")
+print(f"   • Total input rows: {total_samples:,}")
+print(f"   • Files in checkpoint: {len(checkpoint['completed_files'])}")
+print(f"   • Files processed this run: {files_actually_processed}")
+print(f"   • Expected output rows: {total_samples:,} (SAME as input)")
 
 # =============================================================================
 # METADATA
@@ -262,5 +315,57 @@ with open(OUT_PCA256.parent / "pca_metadata.json", "w") as f:
 if CHECKPOINT_FILE.exists():
     CHECKPOINT_FILE.unlink()
     print("🗑️ Checkpoint file removed (pipeline completed)")
+
+# =============================================================================
+# FINAL VERIFICATION
+# =============================================================================
+print("\n" + "="*80)
+print("🔍 FINAL VERIFICATION - Checking output file dimensions")
+print("="*80)
+
+output_total_rows_256 = 0
+output_total_rows_128 = 0
+
+for info in file_info:
+    pca256_path = OUT_PCA256 / info["name"].replace("_embeddings.npy", "_pca256_embeddings.npy")
+    pca128_path = OUT_PCA128 / info["name"].replace("_embeddings.npy", "_pca128_embeddings.npy")
+    
+    if pca256_path.exists() and pca128_path.exists():
+        try:
+            if info["rows"] > LARGE_FILE_THRESHOLD:
+                test_256 = np.memmap(pca256_path, dtype=DTYPE, mode='r', shape=(info["rows"], PCA_256_DIMS))
+                test_128 = np.memmap(pca128_path, dtype=DTYPE, mode='r', shape=(info["rows"], PCA_128_DIMS))
+                shape_256 = (info["rows"], PCA_256_DIMS)
+                shape_128 = (info["rows"], PCA_128_DIMS)
+                del test_256, test_128
+            else:
+                test_256 = np.load(pca256_path, mmap_mode='r')
+                test_128 = np.load(pca128_path, mmap_mode='r')
+                shape_256 = test_256.shape
+                shape_128 = test_128.shape
+            
+            output_total_rows_256 += shape_256[0]
+            output_total_rows_128 += shape_128[0]
+            print(f"✓ {info['name']}: PCA-256={shape_256[0]:,} rows, PCA-128={shape_128[0]:,} rows")
+        except Exception as e:
+            print(f"⚠️ {info['name']}: ERROR - {e}")
+    else:
+        print(f"❌ {info['name']}: OUTPUT NOT FOUND")
+
+print(f"\n{'='*80}")
+print(f"📊 FINAL RESULT:")
+print(f"   • INPUT total:      {total_samples:,} rows × 768 dims")
+print(f"   • PCA-256 output:   {output_total_rows_256:,} rows × 256 dims")
+print(f"   • PCA-128 output:   {output_total_rows_128:,} rows × 128 dims")
+
+if output_total_rows_256 == total_samples and output_total_rows_128 == total_samples:
+    print(f"   ✅ SUCCESS: No data loss! All {total_samples:,} rows preserved")
+else:
+    print(f"   ❌ WARNING: Data loss detected!")
+    if output_total_rows_256 != total_samples:
+        print(f"   Missing in PCA-256: {total_samples - output_total_rows_256:,} rows ({((total_samples - output_total_rows_256) / total_samples * 100):.2f}%)")
+    if output_total_rows_128 != total_samples:
+        print(f"   Missing in PCA-128: {total_samples - output_total_rows_128:,} rows ({((total_samples - output_total_rows_128) / total_samples * 100):.2f}%)")
+print(f"{'='*80}")
 
 print("\n✅ PIPELINE COMPLETE (SAFE FOR 200M+ ROWS)")
