@@ -475,6 +475,7 @@ def process_thunderbird_file(
 if __name__ == "__main__":
     # Example usage
     import argparse
+    import sys
     # Default paths
     default_input = "../../../dataset/thunderbird_non_normal.txt"
     default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset_testing/after_preprocessed_thunderbird_non_normal.txt"
@@ -488,8 +489,16 @@ if __name__ == "__main__":
     parser.add_argument('--meta-output', type=str, default=None, help='Path to metadata TSV output (overrides default)')
 
     # NOTE: When executed inside Jupyter/IPython, the kernel adds its own argv
-    # (commonly: -f <connection_file>). We ignore unknown args to avoid SystemExit.
-    args, unknown = parser.parse_known_args()
+    # (commonly: -f <connection_file>). If we only ignore unknown args, the
+    # connection file can still be consumed as a positional input_file.
+    argv = sys.argv[1:]
+    if '-f' in argv:
+        idx = argv.index('-f')
+        removed = argv[idx:idx + 2]
+        argv = argv[:idx] + argv[idx + 2:]
+        print(f"[warn] Ignoring ipykernel args: {removed}")
+
+    args, unknown = parser.parse_known_args(argv)
     if unknown:
         print(f"[warn] Ignoring unknown args: {unknown}")
 
