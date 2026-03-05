@@ -472,8 +472,8 @@ if __name__ == "__main__":
     # Example usage
     import argparse
     # Default paths
-    default_input = "../../../dataset/Thunderbird.log"
-    default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset/after_preprocessed_thunderbird.txt"
+    default_input = "../../../dataset/thunderbird_non_normal.txt"
+    default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset_testing/after_preprocessed_thunderbird_non_normal.txt"
 
     parser = argparse.ArgumentParser(description='Thunderbird log preprocessing')
     parser.add_argument('input_file', nargs='?', default=default_input, help='Path to Thunderbird.log')
