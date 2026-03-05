@@ -325,7 +325,14 @@ class ThunderbirdLogPreprocessor:
             self.stats[key] = 0
 
 
-def process_thunderbird_file(input_file: str, output_file: str, remove_duplicates: bool = True, sample_normal: int = None, sample_non: int = None):
+def process_thunderbird_file(
+    input_file: str,
+    output_file: str,
+    remove_duplicates: bool = True,
+    sample_normal: int = None,
+    sample_non: int = None,
+    meta_output: str | None = None,
+):
     """
     Process Thunderbird log file and save preprocessed output
     
@@ -346,12 +353,15 @@ def process_thunderbird_file(input_file: str, output_file: str, remove_duplicate
 
     # Prepare output paths
     output_path = Path(output_file)
-    meta_output_default = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data") / (output_path.name.replace('.txt', '') + '_meta.tsv')
-    meta_output = str(meta_output_default)
+    meta_output_default = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data") / (
+        output_path.name.replace('.txt', '') + '_meta.tsv'
+    )
+    meta_output_path = Path(meta_output) if meta_output else meta_output_default
+    meta_output = str(meta_output_path)
 
     print(f"\n📖 Reading input file and streaming preprocessing...")
     Path(output_path.parent).mkdir(parents=True, exist_ok=True)
-    Path(meta_output_default.parent).mkdir(parents=True, exist_ok=True)
+    Path(meta_output_path.parent).mkdir(parents=True, exist_ok=True)
 
     total_lines = 0
     written_lines = 0
@@ -440,13 +450,7 @@ def process_thunderbird_file(input_file: str, output_file: str, remove_duplicate
 
         print(f"✓ Processed and wrote {written_lines:,} lines to dataset and metadata files")
 
-    # If sampling branch used, written_lines will have been updated there.
-    # For the non-sampling branch we printed written_lines above; print final tally here too.
-    try:
-        final_written = written_lines
-    except NameError:
-        final_written = total_lines
-    print(f"✓ Processed and wrote {final_written:,} lines to dataset and metadata files")
+    print(f"✓ Processed and wrote {written_lines:,} lines to dataset and metadata files")
     
     # Print statistics
     preprocessor.print_stats()
@@ -483,7 +487,11 @@ if __name__ == "__main__":
     parser.add_argument('--sample-non', type=int, default=None, help='Number of non-normal lines to sample')
     parser.add_argument('--meta-output', type=str, default=None, help='Path to metadata TSV output (overrides default)')
 
-    args = parser.parse_args()
+    # NOTE: When executed inside Jupyter/IPython, the kernel adds its own argv
+    # (commonly: -f <connection_file>). We ignore unknown args to avoid SystemExit.
+    args, unknown = parser.parse_known_args()
+    if unknown:
+        print(f"[warn] Ignoring unknown args: {unknown}")
 
     input_file = args.input_file
     output_file = args.output_file
@@ -491,7 +499,13 @@ if __name__ == "__main__":
     sample_normal = args.sample_normal
     sample_non = args.sample_non
 
-    # If user provided meta-output, adjust internal meta path (not currently used)
     meta_override = args.meta_output if args.meta_output else None
 
-    process_thunderbird_file(input_file, output_file, remove_duplicates=remove_dups, sample_normal=sample_normal, sample_non=sample_non)
+    process_thunderbird_file(
+        input_file,
+        output_file,
+        remove_duplicates=remove_dups,
+        sample_normal=sample_normal,
+        sample_non=sample_non,
+        meta_output=meta_override,
+    )
