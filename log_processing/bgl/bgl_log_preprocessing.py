@@ -349,8 +349,8 @@ if __name__ == "__main__":
     # Example usage with argparse
     import argparse
 
-    default_input = "../../../dataset/BGL/bgl_normal_testing.txt"
-    default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset_testing/after_preprocessed_bgl_normal.txt"
+    default_input = "../../../dataset/BGL/bgl_non_normal_testing.txt"
+    default_output = "/media/bioinfo04/Expansion/after_preprocessed_dataset_testing/after_preprocessed_bgl_non_normal.txt"
 
     parser = argparse.ArgumentParser(description='BGL log preprocessing')
     parser.add_argument('input_file', nargs='?', default=default_input, help='Path to BGL.log')
