@@ -149,9 +149,9 @@ print(f"✓ Model: {model.config._name_or_path}")
 # ============================================================================
 # SETUP DIRECTORIES
 # ============================================================================
-input_dir = Path("/media/bioinfo04/Expansion/after_PreProcessed_Dataset")
-primary_output_dir = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector")
-backup_output_dir = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector")
+input_dir = Path("/media/bioinfo04/Expansion/after_PreProcessed_Dataset_testing")
+primary_output_dir = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing")
+backup_output_dir = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing")
 
 # Fungsi untuk cek ruang disk yang tersedia
 def get_free_space_gb(path):
