@@ -25,10 +25,10 @@ import pickle
 # CONFIG
 # =============================================================================
 
-INPUT_DIR = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector")
+INPUT_DIR = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing")
 # Normalized files NOT saved (only processed in-memory for PCA)
-OUT_PCA256 = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256")
-OUT_PCA128 = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca128")
+OUT_PCA256 = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256_testing")
+OUT_PCA128 = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca128_testing")
 CHECKPOINT_FILE = Path("/media/bioinfo04/Expansion/2427051003_checkpoint.json")
 
 EMBEDDING_DIMS = 768
