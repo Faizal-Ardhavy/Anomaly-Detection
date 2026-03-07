@@ -86,7 +86,7 @@ TESTING_SETS = [
     {
         'name': 'normal',
         'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_bgl_normal_embeddings.npy"),
-        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_non_normal_meta.tsv")
+        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_normal_meta.tsv")
     },
     {
         'name': 'nonnormal',
@@ -135,9 +135,9 @@ OUTPUT_PER_SET_METRICS = OUTPUT_DIR / "per_set_metrics.csv"
 
 def load_template_events(template_path: Path) -> set:
     """
-    Load EventId set from template TSV file
+    Load Label set from template TSV file
     
-    Returns: set of EventIds (e.g., {'E77', 'E3', 'E18', ...})
+    Returns: set of Labels (e.g., {'-', 'APPREAD', 'KERNDTLB', ...})
     """
     print(f"   Loading template: {template_path.name}")
     
@@ -146,13 +146,13 @@ def load_template_events(template_path: Path) -> set:
     
     df = pd.read_csv(template_path, sep='\t')
     
-    if 'EventId' not in df.columns:
-        raise ValueError(f"EventId column not found in {template_path}")
+    if 'Label' not in df.columns:
+        raise ValueError(f"Label column not found in {template_path}")
     
-    event_set = set(df['EventId'].unique())
-    print(f"   ✓ Found {len(event_set)} unique EventIds")
+    label_set = set(df['Label'].unique())
+    print(f"   ✓ Found {len(label_set)} unique Labels")
     
-    return event_set
+    return label_set
 
 
 def load_metadata_labels_3way(tsv_path: Path, 
@@ -163,9 +163,9 @@ def load_metadata_labels_3way(tsv_path: Path,
     
     Returns: 
         numpy array with:
-        - 0 = NORMAL (EventId in normal template)
-        - 1 = NON-NORMAL (EventId in nonNormal template)  
-        - 2 = ANOMALY (EventId not in either template)
+        - 0 = NORMAL (Label in normal template)
+        - 1 = NON-NORMAL (Label in nonNormal template)  
+        - 2 = ANOMALY (Label not in either template)
     """
     print(f"\n📖 Loading 3-way ground truth labels from: {tsv_path}")
     
@@ -218,9 +218,80 @@ def load_metadata_labels_3way(tsv_path: Path,
     print(f"      NON-NORMAL (1): {stats['nonnormal']:,} ({stats['nonnormal']/total*100:.2f}%)")
     print(f"      ANOMALY (2):    {stats['anomaly']:,} ({stats['anomaly']/total*100:.2f}%)")
     if stats['unknown'] > 0:
-        print(f"      Unknown EventId: {stats['unknown']:,}")
+        print(f"      Unknown/Empty Label: {stats['unknown']:,}")
     
     return labels_array
+
+
+def load_multiple_testing_sets(testing_sets, normal_template_path, nonnormal_template_path):
+    """
+    Load multiple testing sets with separate metadata files
+    
+    Args:
+        testing_sets: List of dicts with keys: 'name', 'embeddings', 'metadata'
+        normal_template_path: Path to normal template file
+        nonnormal_template_path: Path to non-normal template file
+    
+    Returns:
+        combined_embeddings: numpy array of all embeddings concatenated
+        combined_labels: numpy array of all ground truth labels
+        test_set_info: list of dicts with per-set statistics
+    """
+    print(f"\n📦 Loading {len(testing_sets)} testing sets...")
+    
+    all_embeddings = []
+    all_labels = []
+    test_set_info = []
+    
+    for test_set in testing_sets:
+        name = test_set['name']
+        embeddings_path = test_set['embeddings']
+        metadata_path = test_set['metadata']
+        
+        print(f"\n  Loading test set: {name}")
+        print(f"    Embeddings: {embeddings_path.name}")
+        print(f"    Metadata:   {metadata_path.name}")
+        
+        # Load embeddings
+        if not embeddings_path.exists():
+            raise FileNotFoundError(f"Embeddings file not found: {embeddings_path}")
+        embeddings = np.load(embeddings_path, mmap_mode='r')
+        print(f"    ✓ Loaded embeddings: {embeddings.shape}")
+        
+        # Load ground truth labels from metadata
+        labels = load_metadata_labels_3way(
+            metadata_path,
+            normal_template_path,
+            nonnormal_template_path
+        )
+        
+        # Verify length match
+        if len(embeddings) != len(labels):
+            raise ValueError(
+                f"Mismatch for set '{name}': "
+                f"embeddings={len(embeddings)}, labels={len(labels)}"
+            )
+        
+        # Store info
+        test_set_info.append({
+            'name': name,
+            'start_idx': len(all_labels),
+            'end_idx': len(all_labels) + len(labels),
+            'n_samples': len(labels)
+        })
+        
+        all_embeddings.append(embeddings)
+        all_labels.append(labels)
+    
+    # Combine all sets
+    combined_embeddings = np.vstack(all_embeddings)
+    combined_labels = np.concatenate(all_labels)
+    
+    print(f"\n✓ Combined testing data:")
+    print(f"  Total samples: {len(combined_labels):,}")
+    print(f"  Embeddings shape: {combined_embeddings.shape}")
+    
+    return combined_embeddings, combined_labels, test_set_info
 
 
 def load_embeddings_from_files(files):
