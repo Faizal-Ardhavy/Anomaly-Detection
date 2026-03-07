@@ -180,28 +180,28 @@ def load_metadata_labels_3way(tsv_path: Path,
     # Check overlap (should be 0)
     overlap = normal_events & nonnormal_events
     if overlap:
-        print(f"   ⚠️ WARNING: {len(overlap)} EventIds in both templates!")
+        print(f"   ⚠️ WARNING: {len(overlap)} Labels in both templates!")
         print(f"      Examples: {list(overlap)[:5]}")
     
     # Load metadata
     print(f"\n   Loading metadata TSV...")
     df = pd.read_csv(tsv_path, sep='\t')
     
-    if 'EventId' not in df.columns:
-        raise ValueError(f"EventId column not found in {tsv_path}")
+    if 'label' not in df.columns:
+        raise ValueError(f"label column not found in {tsv_path}. Available columns: {df.columns.tolist()}")
     
     # Assign 3-way labels
     labels = []
     stats = {'normal': 0, 'nonnormal': 0, 'anomaly': 0, 'unknown': 0}
     
-    for event_id in df['EventId']:
-        if pd.isna(event_id):
-            labels.append(2)  # Missing EventId = ANOMALY
+    for label_val in df['label']:
+        if pd.isna(label_val) or label_val == '':
+            labels.append(2)  # Missing/empty label = ANOMALY
             stats['unknown'] += 1
-        elif event_id in normal_events:
+        elif label_val in normal_events:
             labels.append(0)  # NORMAL
             stats['normal'] += 1
-        elif event_id in nonnormal_events:
+        elif label_val in nonnormal_events:
             labels.append(1)  # NON-NORMAL
             stats['nonnormal'] += 1
         else:
