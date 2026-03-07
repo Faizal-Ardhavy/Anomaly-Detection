@@ -54,20 +54,21 @@ warnings.filterwarnings('ignore')
 
 # Dataset & Algorithm Selection
 DATASET = "BGL"  # "BGL" or "Thunderbird"
-ALGORITHM = "kmeans"  # "kmeans" or "dbscan"
+ALGORITHM = "dbscan"  # "kmeans" or "dbscan"
 EMBEDDING_TYPE = "base"  # "base", "pca256", or "pca128"
 
 # Template paths for 3-way ground truth classification
 if DATASET == "BGL":
     NORMAL_TEMPLATE_PATH = Path("log_processing/bgl/bgl_normal_template.txt")
     NONNORMAL_TEMPLATE_PATH = Path("log_processing/bgl/bgl_nonNormal_template.txt")
+    METADATA_TSV_PATH = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_meta.tsv")
 else:  # Thunderbird
     NORMAL_TEMPLATE_PATH = Path("log_processing/thunderbird/thunderbird_normal_template.txt")
     NONNORMAL_TEMPLATE_PATH = Path("log_processing/thunderbird/thunderbird_nonNormal_template.txt")
+    METADATA_TSV_PATH = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_thunderbird_meta.tsv")
 
 # Path to metadata TSV (for EventId extraction)
 # Format: Contains EventId column for template matching
-METADATA_TSV_PATH = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_meta.tsv")
 
 # Path to training results
 if ALGORITHM == "kmeans":
@@ -75,8 +76,8 @@ if ALGORITHM == "kmeans":
     TRAINING_LABELS_PATH = Path("cluster_labels.npy")
     TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy")
 else:  # dbscan
-    TRAINING_LABELS_PATH = Path("dbscan/dbscan_labels.npy")
-    TRAINING_CONFIG_PATH = Path("dbscan/dbscan_config.npy")
+    TRAINING_LABELS_PATH = Path("dbscan/bgl_base_model/dbscan_labels.npy")
+    TRAINING_CONFIG_PATH = Path("dbscan/bgl_base_model/dbscan_config.npy")
     TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy")
 
 # Path to testing data - MULTIPLE SETS WITH SEPARATE METADATA
@@ -84,13 +85,13 @@ else:  # dbscan
 TESTING_SETS = [
     {
         'name': 'normal',
-        'embeddings': Path("/media/bioinfo04/Expansion/testing_data/testing_normal_embeddings.npy"),
-        'metadata': Path("/media/bioinfo04/Expansion/testing_data/testing_normal_meta.tsv")
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_bgl_normal_embeddings.npy"),
+        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_non_normal_meta.tsv")
     },
     {
         'name': 'nonnormal',
-        'embeddings': Path("/media/bioinfo04/Expansion/testing_data/testing_nonnormal_embeddings.npy"),
-        'metadata': Path("/media/bioinfo04/Expansion/testing_data/testing_nonnormal_meta.tsv")
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_bgl_non_normal_embeddings.npy"),
+        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_non_normal_meta.tsv")
     }
 ]
 
