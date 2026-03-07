@@ -117,6 +117,11 @@ KNN_MEDIUM_CONFIDENCE = 0.60        # 6/10 vote = medium confidence
 
 USE_COSINE_DISTANCE = True          # Normalize embeddings (recommended for BERT)
 
+# Large dataset optimization parameters
+SUBSAMPLE_KNN_TRAINING = True       # Subsample training data for k-NN (for huge datasets)
+KNN_SUBSAMPLE_SIZE = 5_000_000      # Max training samples for k-NN (5M samples)
+NORMALIZE_INPLACE = True            # Use copy=False to save memory during normalization
+
 # Output paths
 OUTPUT_DIR = Path("testing_results") / f"{DATASET.lower()}_{ALGORITHM}_{EMBEDDING_TYPE}"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -157,9 +162,18 @@ def load_template_events(template_path: Path) -> set:
 
 def load_metadata_labels_3way(tsv_path: Path, 
                                 normal_template_path: Path,
-                                nonnormal_template_path: Path) -> np.ndarray:
+                                nonnormal_template_path: Path,
+                                use_chunking: bool = True,
+                                chunksize: int = 1_000_000) -> np.ndarray:
     """
     Load ground truth labels using template-based 3-way classification
+    
+    Args:
+        tsv_path: Path to metadata TSV file
+        normal_template_path: Path to normal template
+        nonnormal_template_path: Path to non-normal template
+        use_chunking: If True, use streaming/chunking for large files (default: True)
+        chunksize: Number of rows per chunk (default: 1M rows)
     
     Returns: 
         numpy array with:
@@ -183,8 +197,17 @@ def load_metadata_labels_3way(tsv_path: Path,
         print(f"   ⚠️ WARNING: {len(overlap)} Labels in both templates!")
         print(f"      Examples: {list(overlap)[:5]}")
     
-    # Load metadata
-    print(f"\n   Loading metadata TSV...")
+    # Determine file size to decide strategy
+    file_size_mb = tsv_path.stat().st_size / (1024 * 1024)
+    print(f"\n   Metadata file size: {file_size_mb:.1f} MB")
+    
+    # Use chunking for large files (>2 GB)
+    if use_chunking and file_size_mb > 2000:
+        print(f"   Using CHUNKED STREAMING (chunksize={chunksize:,} rows) for large file...")
+        return _load_metadata_chunked(tsv_path, normal_events, nonnormal_events, chunksize)
+    
+    # Standard loading for smaller files
+    print(f"\n   Loading metadata TSV (standard mode)...")
     df = pd.read_csv(tsv_path, sep='\t')
     
     if 'label' not in df.columns:
@@ -217,6 +240,58 @@ def load_metadata_labels_3way(tsv_path: Path,
     print(f"      NORMAL (0):     {stats['normal']:,} ({stats['normal']/total*100:.2f}%)")
     print(f"      NON-NORMAL (1): {stats['nonnormal']:,} ({stats['nonnormal']/total*100:.2f}%)")
     print(f"      ANOMALY (2):    {stats['anomaly']:,} ({stats['anomaly']/total*100:.2f}%)")
+    if stats['unknown'] > 0:
+        print(f"      Unknown/Empty Label: {stats['unknown']:,}")
+    
+    return labels_array
+
+
+def _load_metadata_chunked(tsv_path: Path, normal_events: set, nonnormal_events: set, chunksize: int) -> np.ndarray:
+    """
+    Load large metadata TSV using streaming/chunking to avoid memory overflow
+    
+    Memory-efficient for files >20 GB
+    """
+    labels = []
+    stats = {'normal': 0, 'nonnormal': 0, 'anomaly': 0, 'unknown': 0}
+    total_rows = 0
+    
+    # Stream read in chunks
+    chunk_iterator = pd.read_csv(tsv_path, sep='\t', chunksize=chunksize)
+    
+    for chunk_num, chunk_df in enumerate(chunk_iterator, 1):
+        if 'label' not in chunk_df.columns:
+            raise ValueError(f"label column not found in chunk {chunk_num}")
+        
+        # Process chunk
+        for label_val in chunk_df['label']:
+            if pd.isna(label_val) or label_val == '':
+                labels.append(2)
+                stats['unknown'] += 1
+            elif label_val in normal_events:
+                labels.append(0)
+                stats['normal'] += 1
+            elif label_val in nonnormal_events:
+                labels.append(1)
+                stats['nonnormal'] += 1
+            else:
+                labels.append(2)
+                stats['anomaly'] += 1
+        
+        total_rows += len(chunk_df)
+        
+        # Progress indicator every 10 chunks
+        if chunk_num % 10 == 0:
+            print(f"      Processed {total_rows:,} rows ({chunk_num} chunks)...")
+    
+    labels_array = np.array(labels, dtype=np.int32)
+    
+    # Print statistics
+    print(f"\n   ✓ Loaded {len(labels_array):,} labels via chunked streaming")
+    print(f"\n   Class Distribution:")
+    print(f"      NORMAL (0):     {stats['normal']:,} ({stats['normal']/len(labels_array)*100:.2f}%)")
+    print(f"      NON-NORMAL (1): {stats['nonnormal']:,} ({stats['nonnormal']/len(labels_array)*100:.2f}%)")
+    print(f"      ANOMALY (2):    {stats['anomaly']:,} ({stats['anomaly']/len(labels_array)*100:.2f}%)")
     if stats['unknown'] > 0:
         print(f"      Unknown/Empty Label: {stats['unknown']:,}")
     
@@ -449,20 +524,49 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
     # Pre-normalize embeddings if needed
     if USE_COSINE_DISTANCE:
         print("   Normalizing embeddings for cosine distance...")
-        training_embeddings = normalize(training_embeddings, norm='l2')
-        test_embeddings = normalize(test_embeddings, norm='l2')
+        if NORMALIZE_INPLACE:
+            # In-place normalization to save memory (copy=False)
+            # WARNING: modifies original arrays, but they are mmap views so it's safe
+            print("      Using in-place normalization (memory efficient)")
+            training_embeddings = normalize(training_embeddings, norm='l2', copy=False)
+            test_embeddings = normalize(test_embeddings, norm='l2', copy=False)
+        else:
+            training_embeddings = normalize(training_embeddings, norm='l2')
+            test_embeddings = normalize(test_embeddings, norm='l2')
     
     # Build k-NN model for mixed clusters (if needed)
     knn_model = None
     if use_knn:
-        print(f"   Building k-NN model (k={KNN_NEIGHBORS})...")
+        # For HUGE datasets, subsample training data for k-NN
+        if SUBSAMPLE_KNN_TRAINING and len(training_embeddings) > KNN_SUBSAMPLE_SIZE:
+            print(f"   ⚠️ Training set too large ({len(training_embeddings):,} samples)")
+            print(f"   Subsampling to {KNN_SUBSAMPLE_SIZE:,} samples for k-NN model...")
+            
+            # Random subsample
+            subsample_indices = np.random.choice(
+                len(training_embeddings), 
+                size=KNN_SUBSAMPLE_SIZE, 
+                replace=False
+            )
+            knn_train_embeddings = training_embeddings[subsample_indices]
+            knn_train_labels = training_labels[subsample_indices]
+            
+            print(f"      Subsampled embeddings shape: {knn_train_embeddings.shape}")
+        else:
+            knn_train_embeddings = training_embeddings
+            knn_train_labels = training_labels
+        
+        print(f"   Building k-NN model (k={KNN_NEIGHBORS}, samples={len(knn_train_embeddings):,})...")
         knn_model = NearestNeighbors(
             n_neighbors=KNN_NEIGHBORS,
             metric='cosine' if USE_COSINE_DISTANCE else 'euclidean',
             algorithm='auto',
             n_jobs=-1
         )
-        knn_model.fit(training_embeddings)
+        knn_model.fit(knn_train_embeddings)
+        
+        # Store labels for vote counting
+        knn_model.train_labels = knn_train_labels
     
     # Group samples by cluster for efficient processing
     unique_clusters = np.unique(test_cluster_labels)
@@ -529,8 +633,11 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
             distances, neighbor_indices = knn_model.kneighbors(cluster_test_embeddings)
             
             # Vote for each test sample (3-way)
+            # Use the labels from k-NN model (might be subsampled)
+            knn_labels = knn_model.train_labels if hasattr(knn_model, 'train_labels') else training_labels
+            
             for i, sample_idx in enumerate(indices):
-                neighbor_labels = training_labels[neighbor_indices[i]]
+                neighbor_labels = knn_labels[neighbor_indices[i]]
                 
                 # Count votes for each class (0=Normal, 1=NonNormal, 2=Anomaly)
                 votes = np.bincount(neighbor_labels, minlength=3)
