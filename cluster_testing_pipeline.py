@@ -79,15 +79,29 @@ else:  # dbscan
     TRAINING_CONFIG_PATH = Path("dbscan/dbscan_config.npy")
     TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy")
 
-# Path to testing embeddings
-TESTING_EMBEDDINGS_PATHS = [
-    Path("testing_error.npy"),
-    Path("testing_warning.npy"),
-    Path("testing_info.npy"),
+# Path to testing data - MULTIPLE SETS WITH SEPARATE METADATA
+# Each testing set should have its own embeddings file and metadata TSV
+TESTING_SETS = [
+    {
+        'name': 'normal',
+        'embeddings': Path("/media/bioinfo04/Expansion/testing_data/testing_normal_embeddings.npy"),
+        'metadata': Path("/media/bioinfo04/Expansion/testing_data/testing_normal_meta.tsv")
+    },
+    {
+        'name': 'nonnormal',
+        'embeddings': Path("/media/bioinfo04/Expansion/testing_data/testing_nonnormal_embeddings.npy"),
+        'metadata': Path("/media/bioinfo04/Expansion/testing_data/testing_nonnormal_meta.tsv")
+    }
 ]
 
-# Path to testing metadata (for ground truth)
-TESTING_METADATA_TSV = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/testing_bgl_meta.tsv")
+# LEGACY: Single testing file support (if you still use old format)
+# Uncomment below and comment TESTING_SETS if you want old behavior
+# TESTING_EMBEDDINGS_PATHS = [
+#     Path("testing_error.npy"),
+#     Path("testing_warning.npy"),
+#     Path("testing_info.npy"),
+# ]
+# TESTING_METADATA_TSV = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/testing_bgl_meta.tsv")
 
 # Hybrid prediction parameters (3-way classification)
 PURITY_THRESHOLD_HIGH = 0.95       # Pure cluster (trust dominant label)
@@ -112,6 +126,7 @@ OUTPUT_METRICS = OUTPUT_DIR / "metrics.txt"
 OUTPUT_CONFUSION_MATRIX = OUTPUT_DIR / "confusion_matrix.png"
 OUTPUT_PURITY_DISTRIBUTION = OUTPUT_DIR / "purity_distribution.png"
 OUTPUT_DETAILED_RESULTS = OUTPUT_DIR / "detailed_results.csv"
+OUTPUT_PER_SET_METRICS = OUTPUT_DIR / "per_set_metrics.csv"
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -749,24 +764,12 @@ def main():
     print("STEP 5: LOAD TESTING DATA")
     print("="*70)
     
-    print("\nLoading testing embeddings...")
-    test_embeddings = load_embeddings_from_files(TESTING_EMBEDDINGS_PATHS)
-    print(f"   ✓ Test embeddings shape: {test_embeddings.shape}")
-    
-    print("\nLoading testing ground truth (3-way)...")
-    test_gt_labels = load_metadata_labels_3way(
-        TESTING_METADATA_TSV,
+    # Load multiple testing sets with separate metadata
+    test_embeddings, test_gt_labels, test_set_info = load_multiple_testing_sets(
+        TESTING_SETS,
         NORMAL_TEMPLATE_PATH,
         NONNORMAL_TEMPLATE_PATH
     )
-    
-    # Verify length match
-    if len(test_embeddings) != len(test_gt_labels):
-        print(f"   ⚠️ Length mismatch between embeddings and labels!")
-        min_len = min(len(test_embeddings), len(test_gt_labels))
-        print(f"   → Truncating to {min_len:,} samples")
-        test_embeddings = test_embeddings[:min_len]
-        test_gt_labels = test_gt_labels[:min_len]
     
     # ========================================================================
     # STEP 6: Assign test samples to clusters
@@ -840,7 +843,16 @@ def main():
     print("STEP 9: SAVE DETAILED RESULTS")
     print("="*70)
     
+    # Assign test set name to each sample
+    test_set_names = []
+    for i in range(len(test_gt_labels)):
+        for set_info in test_set_info:
+            if set_info['start_idx'] <= i < set_info['end_idx']:
+                test_set_names.append(set_info['name'])
+                break
+    
     results_df = pd.DataFrame({
+        'test_set': test_set_names,
         'cluster_id': test_cluster_labels,
         'true_label': test_gt_labels,
         'predicted_label': predictions,
@@ -852,6 +864,55 @@ def main():
     results_df.to_csv(OUTPUT_DETAILED_RESULTS, index=False)
     print(f"✓ Detailed results saved to: {OUTPUT_DETAILED_RESULTS}")
     print(f"  Total rows: {len(results_df):,}")
+    
+    # Print per-set accuracy
+    print(f"\n📊 Per-Set Performance:")
+    for set_info in test_set_info:
+        set_name = set_info['name']
+        set_mask = results_df['test_set'] == set_name
+        set_acc = results_df[set_mask]['correct'].mean()
+        set_samples = set_mask.sum()
+        print(f"   {set_name:12s}: {set_acc:.4f} accuracy ({set_samples:,} samples)")
+    
+    # Calculate detailed per-set metrics
+    print(f"\n📈 Calculating per-set detailed metrics...")
+    per_set_metrics = []
+    for set_info in test_set_info:
+        set_name = set_info['name']
+        set_mask = results_df['test_set'] == set_name
+        
+        set_y_true = results_df[set_mask]['true_label'].values
+        set_y_pred = results_df[set_mask]['predicted_label'].values
+        
+        # Per-class metrics for this set
+        set_report = classification_report(
+            set_y_true, set_y_pred,
+            labels=[0, 1, 2],
+            target_names=['NORMAL', 'NON-NORMAL', 'ANOMALY'],
+            output_dict=True,
+            zero_division=0
+        )
+        
+        per_set_metrics.append({
+            'test_set': set_name,
+            'n_samples': int(set_mask.sum()),
+            'accuracy': accuracy_score(set_y_true, set_y_pred),
+            'normal_precision': set_report['NORMAL']['precision'],
+            'normal_recall': set_report['NORMAL']['recall'],
+            'normal_f1': set_report['NORMAL']['f1-score'],
+            'nonnormal_precision': set_report['NON-NORMAL']['precision'],
+            'nonnormal_recall': set_report['NON-NORMAL']['recall'],
+            'nonnormal_f1': set_report['NON-NORMAL']['f1-score'],
+            'anomaly_precision': set_report['ANOMALY']['precision'],
+            'anomaly_recall': set_report['ANOMALY']['recall'],
+            'anomaly_f1': set_report['ANOMALY']['f1-score'],
+            'macro_f1': set_report['macro avg']['f1-score'],
+            'weighted_f1': set_report['weighted avg']['f1-score']
+        })
+    
+    per_set_df = pd.DataFrame(per_set_metrics)
+    per_set_df.to_csv(OUTPUT_PER_SET_METRICS, index=False)
+    print(f"✓ Per-set metrics saved to: {OUTPUT_PER_SET_METRICS}")
     
     # ========================================================================
     # STEP 10: Visualize results
@@ -873,6 +934,7 @@ def main():
     print(f"  - Predictions:       {OUTPUT_PREDICTIONS.name}")
     print(f"  - Cluster analysis:  {OUTPUT_CLUSTER_ANALYSIS.name}")
     print(f"  - Metrics:           {OUTPUT_METRICS.name}")
+    print(f"  - Per-set metrics:   {OUTPUT_PER_SET_METRICS.name}")
     print(f"  - Detailed results:  {OUTPUT_DETAILED_RESULTS.name}")
     print(f"  - Visualizations:    analysis_overview.png, confusion_matrix.png")
     
