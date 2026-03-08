@@ -234,7 +234,11 @@ def normalize_embeddings_gpu(embeddings, use_gpu=True, inplace=False):
     Returns:
         normalized embeddings (numpy array)
     """
-    if use_gpu and CUPY_AVAILABLE:
+    # Calculate data size in GB
+    data_size_gb = (embeddings.nbytes / (1024**3))
+    
+    # Skip GPU for very large arrays (>8GB) - will OOM on most GPUs
+    if use_gpu and CUPY_AVAILABLE and data_size_gb < 8.0:
         # GPU normalization using CuPy (10-30x faster)
         try:
             # Transfer to GPU
@@ -253,8 +257,11 @@ def normalize_embeddings_gpu(embeddings, use_gpu=True, inplace=False):
             else:
                 return cp.asnumpy(embeddings_gpu)
         except Exception as e:
-            print(f"      ⚠️ GPU normalization failed: {e}")
-            print(f"      Falling back to CPU normalization")
+            # GPU failed, fallback to CPU (silent - not critical)
+            pass
+    elif use_gpu and CUPY_AVAILABLE and data_size_gb >= 8.0:
+        # Skip GPU for large arrays
+        print(f"      Skipping GPU normalization (data too large: {data_size_gb:.1f} GB)")
     
     # CPU normalization (sklearn)
     return normalize(embeddings, norm='l2', copy=(not inplace))
