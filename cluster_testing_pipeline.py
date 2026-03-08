@@ -1357,78 +1357,49 @@ def main():
         else:
             test_embeddings_norm = test_embeddings
         
-        # Build FAISS index with chunked normalization (memory efficient)
-        # This avoids creating 12 GB normalized copy of training data
-        if FAISS_AVAILABLE and gpu_info['use_gpu']:
-            print("   Building FAISS index for cluster assignment...")
-            print(f"      Using chunked normalization (saves {training_embeddings.nbytes/(1024**3):.1f} GB RAM)")
+        # Use sklearn k-NN for cluster assignment (simple 1-NN, uses all CPU cores)
+        # FAISS is overkill for this and threading doesn't work reliably
+        print("   Building sklearn k-NN for cluster assignment...")
+        
+        if USE_COSINE_DISTANCE:
+            print("      Normalizing training embeddings (chunked to save RAM)...")
+            # Normalize training data in chunks to save memory
+            chunk_size = 500_000
+            training_chunks = []
+            for i in tqdm(range(0, len(training_embeddings), chunk_size), desc="      Normalizing"):
+                end_idx = min(i + chunk_size, len(training_embeddings))
+                chunk = np.array(training_embeddings[i:end_idx], dtype=np.float32)
+                chunk = normalize(chunk, norm='l2', copy=False)
+                training_chunks.append(chunk)
             
-            index, gpu_resources, use_gpu_search = build_faiss_knn_index(
-                training_embeddings,  # Memory-mapped (not loaded to RAM)
-                use_gpu=True, 
-                use_cosine=USE_COSINE_DISTANCE,
-                normalize_first=USE_COSINE_DISTANCE  # Normalize in chunks
-            )
-            
-            # Force garbage collection after index building
+            training_embeddings_norm = np.vstack(training_chunks)
+            del training_chunks
             gc.collect()
-            
-            print("   Finding nearest training sample for each test sample...")
-            # Use hybrid search for best performance
-            _, nearest_indices = faiss_search_hybrid(
-                index,
-                test_embeddings_norm,
-                k=1,
-                gpu_resources=gpu_resources,
-                use_gpu_search=use_gpu_search,
-                batch_size=GPU_KNN_BATCH_SIZE
-            )
-            nearest_indices = nearest_indices.flatten()
-            
-            indices = nearest_indices
-            
-            # Clean up
-            del index, gpu_resources
-            gc.collect()
+            print(f"      ✓ Normalized {len(training_embeddings_norm):,} training samples")
         else:
-            # Fallback to sklearn (also normalize in chunks)
-            print("   Building sklearn k-NN for cluster assignment (CPU)...")
-            
-            if USE_COSINE_DISTANCE:
-                print("      Normalizing training embeddings (chunked)...")
-                # Normalize training data in chunks
-                chunk_size = 500_000
-                training_chunks = []
-                for i in tqdm(range(0, len(training_embeddings), chunk_size), desc="      Normalizing"):
-                    end_idx = min(i + chunk_size, len(training_embeddings))
-                    chunk = np.array(training_embeddings[i:end_idx], dtype=np.float32)
-                    chunk = normalize(chunk, norm='l2', copy=False)
-                    training_chunks.append(chunk)
-                
-                training_embeddings_norm = np.vstack(training_chunks)
-                del training_chunks
-                gc.collect()
-            else:
-                training_embeddings_norm = np.array(training_embeddings, dtype=np.float32)
-            
-            knn = NearestNeighbors(
-                n_neighbors=1, 
-                metric='cosine' if USE_COSINE_DISTANCE else 'euclidean', 
-                n_jobs=-1
-            )
-            knn.fit(training_embeddings_norm)
-            
-            # Clean up normalized training data
-            del training_embeddings_norm
-            gc.collect()
-            
-            print("   Finding nearest training sample for each test sample...")
-            distances, indices_matrix = knn.kneighbors(test_embeddings_norm)
-            indices = indices_matrix.flatten()
-            
-            # Clean up
-            del knn, distances, indices_matrix
-            gc.collect()
+            training_embeddings_norm = np.array(training_embeddings, dtype=np.float32)
+        
+        # Build k-NN model (n_jobs=-1 uses ALL CPU cores - 100% utilization!)
+        knn = NearestNeighbors(
+            n_neighbors=1, 
+            metric='cosine' if USE_COSINE_DISTANCE else 'euclidean', 
+            n_jobs=-1  # Use all CPU cores for parallel search
+        )
+        knn.fit(training_embeddings_norm)
+        print(f"      ✓ Built k-NN index ({len(training_embeddings_norm):,} samples)")
+        
+        # Clean up normalized training data
+        del training_embeddings_norm
+        gc.collect()
+        
+        print("   Finding nearest training sample for each test sample...")
+        print(f"      Using all {os.cpu_count()} CPU cores for parallel search...")
+        distances, indices_matrix = knn.kneighbors(test_embeddings_norm)
+        indices = indices_matrix.flatten()
+        
+        # Clean up
+        del knn, distances, indices_matrix
+        gc.collect()
         
         # Assign cluster based on nearest neighbor
         test_cluster_labels = training_cluster_labels[indices]
