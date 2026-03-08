@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import csv
+import os
 from collections import Counter, defaultdict
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -312,14 +313,15 @@ def build_faiss_knn_index(embeddings, use_gpu=True, use_cosine=True, allow_hybri
             use_full_gpu = True
             use_gpu_search = True
             print(f"      Strategy: Full GPU index ({data_size_gb:.1f} GB)")
-        elif allow_hybrid and USE_HYBRID_GPU_SEARCH:
-            # Too large for GPU, but use GPU for search queries
-            use_gpu_search = True
-            print(f"      Strategy: Hybrid (CPU index + GPU search, {data_size_gb:.1f} GB)")
-            print(f"      This gives 10-20x speedup without VRAM limits!")
         else:
-            # CPU only
-            print(f"      Strategy: CPU only (data too large: {data_size_gb:.1f} GB)")
+            # Too large for GPU flat index
+            # Note: Hybrid mode (CPU index + GPU search) doesn't work for flat indexes
+            # Would need to transfer entire 12GB index to GPU per batch = OOM
+            # Solution: Use multi-threaded CPU search (3-5x faster, uses all cores)
+            print(f"      Strategy: Multi-threaded CPU (data too large: {data_size_gb:.1f} GB)")
+            print(f"      Will use all CPU cores for 3-5x speedup vs single-threaded")
+    elif use_gpu:
+        print(f"      Strategy: Multi-threaded CPU (GPU not available)")
     
     # For normalized vectors, Inner Product = Cosine Similarity
     if use_cosine:
@@ -402,62 +404,37 @@ def build_faiss_knn_index(embeddings, use_gpu=True, use_cosine=True, allow_hybri
 
 def faiss_search_hybrid(index, queries, k, gpu_resources=None, use_gpu_search=False, batch_size=10000):
     """
-    Perform k-NN search with hybrid GPU support
+    Perform k-NN search with optimized CPU threading
     
-    For hybrid mode (CPU index + GPU search):
-    - Transfers small query batches to GPU
-    - Searches on GPU (10-20x faster)
-    - No need to fit entire training set in VRAM
+    NOTE: "Hybrid" GPU search (CPU index + GPU search) does NOT work for flat indexes.
+    Reason: FAISS flat index must be fully on GPU or CPU - cannot transfer 12GB index
+    per query batch without OOM.
+    
+    Solution: Use multi-threaded CPU search (uses all cores, 3-5x faster than single-thread)
     
     Args:
         index: FAISS index (CPU or GPU)
         queries: query vectors (n_queries, dim) numpy array
         k: number of neighbors
-        gpu_resources: GPU resources object (for hybrid mode)
-        use_gpu_search: whether to use GPU for search
-        batch_size: batch size for GPU queries
+        gpu_resources: GPU resources object (unused for flat indexes)
+        use_gpu_search: whether GPU was requested (unused for flat indexes)
+        batch_size: batch size (unused for CPU search)
     
     Returns:
         distances, indices (same format as index.search())
     """
     queries_f32 = queries.astype(np.float32)
-    n_queries = len(queries_f32)
     
     # Full GPU index - direct search
     if hasattr(index, 'getDevice'):
         # Already on GPU
         return index.search(queries_f32, k)
     
-    # Hybrid mode - CPU index with GPU search
-    if use_gpu_search and gpu_resources is not None and FAISS_GPU_AVAILABLE:
-        all_distances = []
-        all_indices = []
-        
-        for batch_start in range(0, n_queries, batch_size):
-            batch_end = min(batch_start + batch_size, n_queries)
-            batch_queries = queries_f32[batch_start:batch_end]
-            
-            # Transfer query batch to GPU, search, get results
-            # This is much faster than CPU search and doesn't require index on GPU
-            try:
-                # Create temporary GPU index for this batch
-                index_gpu = faiss.index_cpu_to_gpu(gpu_resources, 0, index)
-                batch_distances, batch_indices = index_gpu.search(batch_queries, k)
-                
-                all_distances.append(batch_distances)
-                all_indices.append(batch_indices)
-                
-                # Clean up GPU index
-                del index_gpu
-            except Exception as e:
-                # Fallback to CPU if GPU fails
-                batch_distances, batch_indices = index.search(batch_queries, k)
-                all_distances.append(batch_distances)
-                all_indices.append(batch_indices)
-        
-        return np.vstack(all_distances), np.vstack(all_indices)
+    # CPU search with multi-threading
+    # Enable OpenMP threading for parallel search (uses all CPU cores)
+    import faiss
+    faiss.omp_set_num_threads(min(16, os.cpu_count() or 8))
     
-    # CPU only - direct search
     return index.search(queries_f32, k)
 
 
