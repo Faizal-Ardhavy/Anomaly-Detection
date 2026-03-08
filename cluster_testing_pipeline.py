@@ -272,7 +272,8 @@ def normalize_embeddings_gpu(embeddings, use_gpu=True, inplace=False):
     return normalize(embeddings, norm='l2', copy=(not inplace))
 
 
-def build_faiss_knn_index(embeddings, use_gpu=True, use_cosine=True, allow_hybrid=True):
+def build_faiss_knn_index(embeddings, use_gpu=True, use_cosine=True, allow_hybrid=True, 
+                          normalize_first=False):
     """
     Build FAISS k-NN index (GPU or CPU, with hybrid support)
     
@@ -283,11 +284,14 @@ def build_faiss_knn_index(embeddings, use_gpu=True, use_cosine=True, allow_hybri
        - GPU search (10-20x speedup for queries)
     3. Large data + no GPU: CPU index + CPU search
     
+    Memory-efficient: Normalizes and adds data in chunks for large datasets
+    
     Args:
-        embeddings: normalized numpy array (n_samples, n_features)
+        embeddings: numpy array (n_samples, n_features) - can be memory-mapped
         use_gpu: whether to use GPU
         use_cosine: whether to use cosine distance (Inner Product for normalized vectors)
         allow_hybrid: allow hybrid mode (CPU index + GPU search) for large data
+        normalize_first: if True, normalize embeddings before adding (memory-efficient chunked)
     
     Returns:
         tuple: (FAISS index object, gpu_resources object or None, use_gpu_search flag)
@@ -325,20 +329,47 @@ def build_faiss_knn_index(embeddings, use_gpu=True, use_cosine=True, allow_hybri
         # IndexFlatL2 = Euclidean distance
         index = faiss.IndexFlatL2(dim)
     
-    # Add vectors to index (on CPU first)
+    # Add vectors to index (with chunked normalization if needed)
     # FAISS requires float32
-    embeddings_f32 = embeddings.astype(np.float32)
     
-    # For very large datasets (>50GB), add in batches to avoid memory spikes
-    if data_size_gb > 50:
-        print(f"      Adding vectors in batches (data very large)...")
-        batch_size = 1_000_000  # 1M vectors per batch
-        for i in tqdm(range(0, len(embeddings_f32), batch_size), desc="      Adding batches"):
-            end_idx = min(i + batch_size, len(embeddings_f32))
-            index.add(embeddings_f32[i:end_idx])
+    # Memory-efficient: Normalize and add in chunks for large datasets
+    if normalize_first and data_size_gb > 3.0:
+        import gc
+        print(f"      Adding vectors in normalized chunks (memory-efficient)...")
+        chunk_size = 500_000  # 500K vectors per chunk (~1.5 GB per chunk)
+        
+        for i in tqdm(range(0, n_samples, chunk_size), desc="      Processing"):
+            end_idx = min(i + chunk_size, n_samples)
+            
+            # Load chunk (works with memory-mapped arrays)
+            chunk = np.array(embeddings[i:end_idx], dtype=np.float32)
+            
+            # Normalize chunk in-place
+            norms = np.linalg.norm(chunk, axis=1, keepdims=True)
+            norms[norms == 0] = 1
+            chunk /= norms
+            
+            # Add to index
+            index.add(chunk)
+            
+            # Free memory
+            del chunk
+            if i % (chunk_size * 4) == 0:  # GC every 4 chunks
+                gc.collect()
     else:
-        # Add all at once
-        index.add(embeddings_f32)
+        # Standard: load all and add
+        embeddings_f32 = embeddings.astype(np.float32)
+        
+        # For very large datasets (>50GB), add in batches
+        if data_size_gb > 50:
+            print(f"      Adding vectors in batches (data very large)...")
+            batch_size = 1_000_000  # 1M vectors per batch
+            for i in tqdm(range(0, len(embeddings_f32), batch_size), desc="      Adding batches"):
+                end_idx = min(i + batch_size, len(embeddings_f32))
+                index.add(embeddings_f32[i:end_idx])
+        else:
+            # Add all at once
+            index.add(embeddings_f32)
     
     # Move index to GPU if using full GPU mode
     if use_full_gpu:
@@ -796,7 +827,8 @@ def analyze_cluster_characteristics(cluster_labels, ground_truth_labels):
 
 def hybrid_predict(test_cluster_labels, cluster_dict, 
                    training_embeddings, training_labels, 
-                   test_embeddings, use_knn=True, gpu_info=None):
+                   test_embeddings, use_knn=True, gpu_info=None,
+                   embeddings_already_normalized=False):
     """
     Hybrid prediction strategy (3-way classification):
     1. Noise points → ANOMALY (label=2)
@@ -805,6 +837,9 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
     4. Pure clusters (>95%) → Use cluster's dominant label (0/1/2)
     5. Medium purity (70-95%) → NON-NORMAL (label=1)
     6. Low purity (<70%) → Use k-NN vote for 3-way classification
+    
+    Args:
+        embeddings_already_normalized: If True, skip normalization (saves RAM)
     
     Returns:
     - predictions (numpy array: 0/1/2)
@@ -821,24 +856,25 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
     # Determine GPU usage
     use_gpu = gpu_info['use_gpu'] if gpu_info else False
     
-    # Pre-normalize embeddings if needed
-    if USE_COSINE_DISTANCE:
-        print("   Normalizing embeddings for cosine distance...")
+    # Pre-normalize test embeddings if needed (training normalized later if subsampled)
+    if USE_COSINE_DISTANCE and not embeddings_already_normalized:
+        print("   Normalizing test embeddings for cosine distance...")
         if use_gpu and CUPY_AVAILABLE:
             print("      Using GPU normalization (CuPy)...")
-        elif NORMALIZE_INPLACE:
-            print("      Using in-place normalization (memory efficient)")
         
-        training_embeddings = normalize_embeddings_gpu(
-            training_embeddings, 
-            use_gpu=use_gpu, 
-            inplace=NORMALIZE_INPLACE
-        )
+        # Normalize test embeddings (can be done in-place, they're in RAM)
         test_embeddings = normalize_embeddings_gpu(
             test_embeddings, 
             use_gpu=use_gpu, 
-            inplace=NORMALIZE_INPLACE
+            inplace=True  # In-place to save RAM
         )
+        embeddings_already_normalized = True  # Update flag
+        print("   ✓ Test embeddings normalized")
+    elif embeddings_already_normalized:
+        print("   Using already-normalized embeddings (saves RAM!)")
+    
+    # Note: training_embeddings will be normalized after subsampling (if needed)
+    # This saves RAM by normalizing only 1M samples instead of full 4M
     
     # Build k-NN model for mixed clusters (if needed)
     knn_index = None
@@ -848,6 +884,8 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
     use_faiss = FAISS_AVAILABLE and use_knn
     
     if use_knn:
+        import gc
+        
         # For HUGE datasets, subsample training data for k-NN
         if SUBSAMPLE_KNN_TRAINING and len(training_embeddings) > KNN_SUBSAMPLE_SIZE:
             print(f"   ⚠️ Training set too large ({len(training_embeddings):,} samples)")
@@ -863,9 +901,19 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
             knn_train_labels = training_labels[subsample_indices]
             
             print(f"      Subsampled embeddings shape: {knn_train_embeddings.shape}")
+            
+            # Normalize subsampled data if needed (saves RAM - only normalize 1M samples not 4M)
+            if USE_COSINE_DISTANCE and not embeddings_already_normalized:
+                print(f"      Normalizing subsampled data...")
+                knn_train_embeddings = np.array(knn_train_embeddings, dtype=np.float32)  # Copy from memory-map
+                knn_train_embeddings = normalize(knn_train_embeddings, norm='l2', copy=False)
+                embeddings_normalized_in_subsample = True
+            else:
+                embeddings_normalized_in_subsample = embeddings_already_normalized
         else:
             knn_train_embeddings = training_embeddings
             knn_train_labels = training_labels
+            embeddings_normalized_in_subsample = embeddings_already_normalized
         
         # Build FAISS index (GPU or CPU) or fallback to sklearn
         if use_faiss:
@@ -875,11 +923,19 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
             else:
                 print(f"      Using FAISS-CPU (still 3-5x faster than sklearn)")
             
+            # If embeddings not normalized yet, normalize in chunks during index building
+            need_normalize = USE_COSINE_DISTANCE and not embeddings_normalized_in_subsample
+            
             knn_index, knn_gpu_resources, knn_use_gpu_search = build_faiss_knn_index(
                 knn_train_embeddings, 
                 use_gpu=use_gpu, 
-                use_cosine=USE_COSINE_DISTANCE
+                use_cosine=USE_COSINE_DISTANCE,
+                normalize_first=need_normalize  # Normalize in chunks if not normalized yet
             )
+            
+            # Clean up
+            del knn_train_embeddings
+            gc.collect()
         else:
             # Fallback to sklearn
             print(f"   Building sklearn k-NN model (k={KNN_NEIGHBORS}, samples={len(knn_train_embeddings):,})...")
@@ -1310,31 +1366,35 @@ def main():
     else:  # dbscan
         print("\nFor DBSCAN, using k-NN to assign test samples to nearest cluster...")
         
-        # Normalize for cosine distance
+        # Import garbage collector for memory management
+        import gc
+        
+        # Normalize test embeddings in-place (memory efficient)
         if USE_COSINE_DISTANCE:
-            print("   Normalizing embeddings...")
-            training_embeddings_norm = normalize_embeddings_gpu(
-                training_embeddings, 
-                use_gpu=gpu_info['use_gpu'], 
-                inplace=False
-            )
+            print("   Normalizing test embeddings (in-place)...")
             test_embeddings_norm = normalize_embeddings_gpu(
                 test_embeddings, 
                 use_gpu=gpu_info['use_gpu'], 
-                inplace=False
+                inplace=True  # In-place to save 2.4 GB RAM
             )
         else:
-            training_embeddings_norm = training_embeddings
             test_embeddings_norm = test_embeddings
         
-        # Use FAISS if available for faster cluster assignment
+        # Build FAISS index with chunked normalization (memory efficient)
+        # This avoids creating 12 GB normalized copy of training data
         if FAISS_AVAILABLE and gpu_info['use_gpu']:
             print("   Building FAISS index for cluster assignment...")
+            print(f"      Using chunked normalization (saves {training_embeddings.nbytes/(1024**3):.1f} GB RAM)")
+            
             index, gpu_resources, use_gpu_search = build_faiss_knn_index(
-                training_embeddings_norm, 
+                training_embeddings,  # Memory-mapped (not loaded to RAM)
                 use_gpu=True, 
-                use_cosine=USE_COSINE_DISTANCE
+                use_cosine=USE_COSINE_DISTANCE,
+                normalize_first=USE_COSINE_DISTANCE  # Normalize in chunks
             )
+            
+            # Force garbage collection after index building
+            gc.collect()
             
             print("   Finding nearest training sample for each test sample...")
             # Use hybrid search for best performance
@@ -1349,9 +1409,31 @@ def main():
             nearest_indices = nearest_indices.flatten()
             
             indices = nearest_indices
+            
+            # Clean up
+            del index, gpu_resources
+            gc.collect()
         else:
-            # Fallback to sklearn
+            # Fallback to sklearn (also normalize in chunks)
             print("   Building sklearn k-NN for cluster assignment (CPU)...")
+            
+            if USE_COSINE_DISTANCE:
+                print("      Normalizing training embeddings (chunked)...")
+                # Normalize training data in chunks
+                chunk_size = 500_000
+                training_chunks = []
+                for i in tqdm(range(0, len(training_embeddings), chunk_size), desc="      Normalizing"):
+                    end_idx = min(i + chunk_size, len(training_embeddings))
+                    chunk = np.array(training_embeddings[i:end_idx], dtype=np.float32)
+                    chunk = normalize(chunk, norm='l2', copy=False)
+                    training_chunks.append(chunk)
+                
+                training_embeddings_norm = np.vstack(training_chunks)
+                del training_chunks
+                gc.collect()
+            else:
+                training_embeddings_norm = np.array(training_embeddings, dtype=np.float32)
+            
             knn = NearestNeighbors(
                 n_neighbors=1, 
                 metric='cosine' if USE_COSINE_DISTANCE else 'euclidean', 
@@ -1359,13 +1441,28 @@ def main():
             )
             knn.fit(training_embeddings_norm)
             
+            # Clean up normalized training data
+            del training_embeddings_norm
+            gc.collect()
+            
             print("   Finding nearest training sample for each test sample...")
             distances, indices_matrix = knn.kneighbors(test_embeddings_norm)
             indices = indices_matrix.flatten()
+            
+            # Clean up
+            del knn, distances, indices_matrix
+            gc.collect()
         
         # Assign cluster based on nearest neighbor
         test_cluster_labels = training_cluster_labels[indices]
         print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples")
+        
+        # Final cleanup
+        del indices
+        gc.collect()
+        
+        # Keep normalized test embeddings for STEP 7 (avoid re-normalizing)
+        # test_embeddings_norm is already normalized in-place above
     
     # ========================================================================
     # STEP 7: Hybrid prediction
@@ -1374,10 +1471,18 @@ def main():
     print("STEP 7: HYBRID PREDICTION")
     print("="*70)
     
+    # Use normalized test embeddings from STEP 6 if available (DBSCAN)
+    if ALGORITHM == "dbscan" and USE_COSINE_DISTANCE:
+        # test_embeddings already normalized in-place in STEP 6
+        embeddings_already_normalized = True
+    else:
+        embeddings_already_normalized = False
+    
     predictions, confidence, methods = hybrid_predict(
         test_cluster_labels, cluster_dict,
         training_embeddings, training_gt_labels,
-        test_embeddings, use_knn=True, gpu_info=gpu_info
+        test_embeddings, use_knn=True, gpu_info=gpu_info,
+        embeddings_already_normalized=embeddings_already_normalized
     )
     
     # Save predictions
