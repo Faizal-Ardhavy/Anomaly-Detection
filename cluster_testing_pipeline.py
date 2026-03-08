@@ -187,10 +187,23 @@ def detect_gpu_capabilities():
                 print(f"   ✓ FAISS-GPU available")
                 if CUPY_AVAILABLE:
                     print(f"   ✓ CuPy available (GPU normalization)")
-                    gpu_info['gpu_name'] = cp.cuda.Device(0).name.decode()
-                    total_mem = cp.cuda.Device(0).mem_info[1] / (1024**3)
-                    print(f"   ✓ GPU: {gpu_info['gpu_name']}")
-                    print(f"   ✓ GPU Memory: {total_mem:.1f} GB")
+                    try:
+                        # Try different methods to get GPU name (different CuPy versions)
+                        device = cp.cuda.Device(0)
+                        try:
+                            gpu_info['gpu_name'] = device.name.decode()
+                        except AttributeError:
+                            # Fallback for newer CuPy versions
+                            props = cp.cuda.runtime.getDeviceProperties(0)
+                            gpu_info['gpu_name'] = props['name'].decode()
+                        
+                        total_mem = device.mem_info[1] / (1024**3)
+                        print(f"   ✓ GPU: {gpu_info['gpu_name']}")
+                        print(f"   ✓ GPU Memory: {total_mem:.1f} GB")
+                    except Exception as e:
+                        # GPU info failed but CuPy still works
+                        print(f"   ✓ GPU: NVIDIA GPU (name detection failed)")
+                        print(f"   ✓ CuPy compute available")
                 else:
                     print(f"   ⚠️ CuPy not available (CPU normalization)")
             except Exception as e:
