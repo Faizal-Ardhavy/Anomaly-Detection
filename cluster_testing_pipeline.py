@@ -140,7 +140,7 @@ USE_COSINE_DISTANCE = True          # Normalize embeddings (recommended for BERT
 
 # Large dataset optimization parameters
 SUBSAMPLE_KNN_TRAINING = True       # Subsample training data for k-NN (for huge datasets)
-KNN_SUBSAMPLE_SIZE = 5_000_000      # Max training samples for k-NN (5M samples)
+KNN_SUBSAMPLE_SIZE = 1_000_000      # Max training samples for k-NN (1M samples)
 NORMALIZE_INPLACE = True            # Use copy=False to save memory during normalization
 
 # GPU acceleration parameters
