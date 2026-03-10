@@ -34,6 +34,8 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import csv
+import pickle
+import gc
 from collections import Counter, defaultdict
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -133,6 +135,15 @@ OUTPUT_CONFUSION_MATRIX = OUTPUT_DIR / "confusion_matrix.png"
 OUTPUT_PURITY_DISTRIBUTION = OUTPUT_DIR / "purity_distribution.png"
 OUTPUT_DETAILED_RESULTS = OUTPUT_DIR / "detailed_results.csv"
 OUTPUT_PER_SET_METRICS = OUTPUT_DIR / "per_set_metrics.csv"
+
+# Checkpoint paths (for resume capability)
+CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
+CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+CHECKPOINT_STEP6 = CHECKPOINT_DIR / "step6_test_cluster_labels.npy"
+CHECKPOINT_STEP7_PRED = CHECKPOINT_DIR / "step7_predictions.npy"
+CHECKPOINT_STEP7_CONF = CHECKPOINT_DIR / "step7_confidence.npy"
+CHECKPOINT_STEP7_METHODS = CHECKPOINT_DIR / "step7_methods.npy"
+CHECKPOINT_METADATA = CHECKPOINT_DIR / "checkpoint_metadata.pkl"
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -1018,154 +1029,241 @@ def main():
     print(f"Algorithm: {ALGORITHM}")
     print(f"Embedding: {EMBEDDING_TYPE}")
     print(f"Output directory: {OUTPUT_DIR}")
+    print(f"Checkpoint directory: {CHECKPOINT_DIR}")
     
     # ========================================================================
-    # STEP 1: Load 3-way ground truth labels from templates
+    # CHECK FOR EXISTING CHECKPOINTS (RESUME CAPABILITY)
     # ========================================================================
-    print("\n" + "="*70)
-    print("STEP 1: LOAD 3-WAY GROUND TRUTH LABELS")
-    print("="*70)
+    checkpoint_exists = all([
+        CHECKPOINT_STEP6.exists(),
+        CHECKPOINT_STEP7_PRED.exists(),
+        CHECKPOINT_STEP7_CONF.exists(),
+        CHECKPOINT_STEP7_METHODS.exists(),
+        CHECKPOINT_METADATA.exists()
+    ])
     
-    training_gt_labels = load_metadata_labels_3way(
-        METADATA_TSV_PATH,
-        NORMAL_TEMPLATE_PATH,
-        NONNORMAL_TEMPLATE_PATH
-    )
-    
-    # ========================================================================
-    # STEP 2: Load training cluster results
-    # ========================================================================
-    print("\n" + "="*70)
-    print("STEP 2: LOAD TRAINING CLUSTER RESULTS")
-    print("="*70)
-    
-    print(f"\nLoading cluster labels: {TRAINING_LABELS_PATH}")
-    training_cluster_labels = np.load(TRAINING_LABELS_PATH)
-    print(f"   ✓ Loaded {len(training_cluster_labels):,} cluster assignments")
-    
-    # Verify length match
-    if len(training_cluster_labels) != len(training_gt_labels):
-        print(f"   ⚠️ Length mismatch!")
-        print(f"   Cluster labels: {len(training_cluster_labels):,}")
-        print(f"   Ground truth:   {len(training_gt_labels):,}")
-        min_len = min(len(training_cluster_labels), len(training_gt_labels))
-        print(f"   → Truncating to {min_len:,} samples")
-        training_cluster_labels = training_cluster_labels[:min_len]
-        training_gt_labels = training_gt_labels[:min_len]
-    
-    n_clusters = len(set(training_cluster_labels) - {-1})
-    n_noise = np.sum(training_cluster_labels == -1)
-    print(f"\nClusters found: {n_clusters}")
-    print(f"Noise points: {n_noise:,} ({n_noise/len(training_cluster_labels)*100:.2f}%)")
-    
-    # ========================================================================
-    # STEP 3: Analyze cluster characteristics
-    # ========================================================================
-    print("\n" + "="*70)
-    print("STEP 3: ANALYZE CLUSTER CHARACTERISTICS")
-    print("="*70)
-    
-    cluster_df, cluster_dict = analyze_cluster_characteristics(
-        training_cluster_labels, training_gt_labels
-    )
-    
-    # Save cluster analysis
-    cluster_df.to_csv(OUTPUT_CLUSTER_ANALYSIS, index=False)
-    print(f"\n✓ Cluster analysis saved to: {OUTPUT_CLUSTER_ANALYSIS}")
-    
-    # ========================================================================
-    # STEP 4: Load training embeddings (for k-NN)
-    # ========================================================================
-    print("\n" + "="*70)
-    print("STEP 4: LOAD TRAINING EMBEDDINGS")
-    print("="*70)
-    
-    print(f"\nLoading training embeddings: {TRAINING_EMBEDDINGS_PATH}")
-    training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, mmap_mode='r')
-    print(f"   ✓ Shape: {training_embeddings.shape}")
-    
-    # Truncate if needed (match cluster labels length)
-    if len(training_embeddings) != len(training_cluster_labels):
-        print(f"   ⚠️ Truncating embeddings to {len(training_cluster_labels):,}")
-        training_embeddings = training_embeddings[:len(training_cluster_labels)]
-    
-    # ========================================================================
-    # STEP 5: Load testing data
-    # ========================================================================
-    print("\n" + "="*70)
-    print("STEP 5: LOAD TESTING DATA")
-    print("="*70)
-    
-    # Load multiple testing sets with separate metadata
-    test_embeddings, test_gt_labels, test_set_info = load_multiple_testing_sets(
-        TESTING_SETS,
-        NORMAL_TEMPLATE_PATH,
-        NONNORMAL_TEMPLATE_PATH
-    )
-    
-    # ========================================================================
-    # STEP 6: Assign test samples to clusters
-    # ========================================================================
-    print("\n" + "="*70)
-    print("STEP 6: ASSIGN TEST SAMPLES TO CLUSTERS")
-    print("="*70)
-    
-    if ALGORITHM == "kmeans":
-        print("\nLoading K-Means model...")
-        model = joblib.load(TRAINED_MODEL_PATH)
-        print(f"   ✓ Model loaded: {type(model).__name__}")
+    if checkpoint_exists:
+        print("\n" + "🔄 " + "="*68)
+        print("CHECKPOINT DETECTED - RESUME FROM STEP 8")
+        print("="*70)
+        print("\n✅ Found existing checkpoint files:")
+        print(f"   - {CHECKPOINT_STEP6.name}")
+        print(f"   - {CHECKPOINT_STEP7_PRED.name}")
+        print(f"   - {CHECKPOINT_STEP7_CONF.name}")
+        print(f"   - {CHECKPOINT_STEP7_METHODS.name}")
+        print(f"   - {CHECKPOINT_METADATA.name}")
         
-        print("\nPredicting cluster assignments for test data...")
-        test_cluster_labels = model.predict(test_embeddings)
-        print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples")
+        user_choice = input("\n⚠️  Resume from checkpoint? (y/n) [default: y]: ").strip().lower()
+        if user_choice in ['', 'y', 'yes']:
+            print("\n📂 Loading checkpoint data...")
+            
+            # Load checkpoint
+            test_cluster_labels = np.load(CHECKPOINT_STEP6, allow_pickle=False)
+            predictions = np.load(CHECKPOINT_STEP7_PRED, allow_pickle=False)
+            confidence = np.load(CHECKPOINT_STEP7_CONF, allow_pickle=False)
+            methods = np.load(CHECKPOINT_STEP7_METHODS, allow_pickle=True)
+            
+            with open(CHECKPOINT_METADATA, 'rb') as f:
+                checkpoint_meta = pickle.load(f)
+            
+            test_gt_labels = checkpoint_meta['test_gt_labels']
+            test_set_info = checkpoint_meta['test_set_info']
+            cluster_df = checkpoint_meta['cluster_df']
+            
+            print(f"   ✓ Loaded test_cluster_labels: {len(test_cluster_labels):,}")
+            print(f"   ✓ Loaded predictions: {len(predictions):,}")
+            print(f"   ✓ Loaded confidence: {len(confidence):,}")
+            print(f"   ✓ Loaded methods: {len(methods):,}")
+            print(f"   ✓ Loaded test_gt_labels: {len(test_gt_labels):,}")
+            print(f"   ✓ Loaded test_set_info: {len(test_set_info)} sets")
+            print(f"   ✓ Loaded cluster_df: {len(cluster_df)} clusters")
+            
+            print("\n🚀 Skipping STEP 1-7, jumping to STEP 8...")
+            
+            # Jump directly to STEP 8
+            goto_step_8 = True
+        else:
+            print("\n🔄 User chose to restart from beginning...")
+            goto_step_8 = False
+    else:
+        print("\n📌 No checkpoint found - Starting from STEP 1")
+        goto_step_8 = False
+    # STEP 1-7: Run if no checkpoint or user chose restart
+    # ========================================================================
+    if not goto_step_8:
+        # ====================================================================
+        # STEP 1: Load 3-way ground truth labels from templates
+        # ====================================================================
+        print("\n" + "="*70)
+        print("STEP 1: LOAD 3-WAY GROUND TRUTH LABELS")
+        print("="*70)
         
-    else:  # dbscan
-        print("\nFor DBSCAN, using k-NN to assign test samples to nearest cluster...")
-        
-        # Try FAISS IVF first (10-100x faster, ~98% accuracy)
-        test_cluster_labels = fast_cluster_assignment_faiss(
-            training_embeddings, 
-            training_cluster_labels,
-            test_embeddings,
-            use_cosine=USE_COSINE_DISTANCE,
-            nlist=1024,      # 1024 Voronoi cells (good for 1M+ samples)
-            nprobe=64,       # Search 64 cells (good balance: speed vs accuracy)
-            batch_size=50000 # Process 50K test samples at a time
+        training_gt_labels = load_metadata_labels_3way(
+            METADATA_TSV_PATH,
+            NORMAL_TEMPLATE_PATH,
+            NONNORMAL_TEMPLATE_PATH
         )
         
-        # Fallback to batched sklearn if FAISS failed
-        if test_cluster_labels is None:
-            print("\n   ⚠️ FAISS unavailable or failed, using batched sklearn (slower but exact)...")
-            test_cluster_labels = fast_cluster_assignment_sklearn_batched(
-                training_embeddings,
+        # ====================================================================
+        # STEP 2: Load training cluster results
+        # ====================================================================
+        print("\n" + "="*70)
+        print("STEP 2: LOAD TRAINING CLUSTER RESULTS")
+        print("="*70)
+        
+        print(f"\nLoading cluster labels: {TRAINING_LABELS_PATH}")
+        training_cluster_labels = np.load(TRAINING_LABELS_PATH)
+        print(f"   ✓ Loaded {len(training_cluster_labels):,} cluster assignments")
+        
+        # Verify length match
+        if len(training_cluster_labels) != len(training_gt_labels):
+            print(f"   ⚠️ Length mismatch!")
+            print(f"   Cluster labels: {len(training_cluster_labels):,}")
+            print(f"   Ground truth:   {len(training_gt_labels):,}")
+            min_len = min(len(training_cluster_labels), len(training_gt_labels))
+            print(f"   → Truncating to {min_len:,} samples")
+            training_cluster_labels = training_cluster_labels[:min_len]
+            training_gt_labels = training_gt_labels[:min_len]
+        
+        n_clusters = len(set(training_cluster_labels) - {-1})
+        n_noise = np.sum(training_cluster_labels == -1)
+        print(f"\nClusters found: {n_clusters}")
+        print(f"Noise points: {n_noise:,} ({n_noise/len(training_cluster_labels)*100:.2f}%)")
+        
+        # ====================================================================
+        # STEP 3: Analyze cluster characteristics
+        # ====================================================================
+        print("\n" + "="*70)
+        print("STEP 3: ANALYZE CLUSTER CHARACTERISTICS")
+        print("="*70)
+        
+        cluster_df, cluster_dict = analyze_cluster_characteristics(
+            training_cluster_labels, training_gt_labels
+        )
+        
+        # Save cluster analysis
+        cluster_df.to_csv(OUTPUT_CLUSTER_ANALYSIS, index=False)
+        print(f"\n✓ Cluster analysis saved to: {OUTPUT_CLUSTER_ANALYSIS}")
+        
+        # ====================================================================
+        # STEP 4: Load training embeddings (for k-NN)
+        # ====================================================================
+        print("\n" + "="*70)
+        print("STEP 4: LOAD TRAINING EMBEDDINGS")
+        print("="*70)
+        
+        print(f"\nLoading training embeddings: {TRAINING_EMBEDDINGS_PATH}")
+        training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, mmap_mode='r')
+        print(f"   ✓ Shape: {training_embeddings.shape}")
+        
+        # Truncate if needed (match cluster labels length)
+        if len(training_embeddings) != len(training_cluster_labels):
+            print(f"   ⚠️ Truncating embeddings to {len(training_cluster_labels):,}")
+            training_embeddings = training_embeddings[:len(training_cluster_labels)]
+        
+        # ====================================================================
+        # STEP 5: Load testing data
+        # ====================================================================
+        print("\n" + "="*70)
+        print("STEP 5: LOAD TESTING DATA")
+        print("="*70)
+        
+        # Load multiple testing sets with separate metadata
+        test_embeddings, test_gt_labels, test_set_info = load_multiple_testing_sets(
+            TESTING_SETS,
+            NORMAL_TEMPLATE_PATH,
+            NONNORMAL_TEMPLATE_PATH
+        )
+        
+        # ====================================================================
+        # STEP 6: Assign test samples to clusters
+        # ====================================================================
+        print("\n" + "="*70)
+        print("STEP 6: ASSIGN TEST SAMPLES TO CLUSTERS")
+        print("="*70)
+        
+        if ALGORITHM == "kmeans":
+            print("\nLoading K-Means model...")
+            model = joblib.load(TRAINED_MODEL_PATH)
+            print(f"   ✓ Model loaded: {type(model).__name__}")
+            
+            print("\nPredicting cluster assignments for test data...")
+            test_cluster_labels = model.predict(test_embeddings)
+            print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples")
+            
+        else:  # dbscan
+            print("\nFor DBSCAN, using k-NN to assign test samples to nearest cluster...")
+            
+            # Try FAISS IVF first (10-100x faster, ~98% accuracy)
+            test_cluster_labels = fast_cluster_assignment_faiss(
+                training_embeddings, 
                 training_cluster_labels,
                 test_embeddings,
                 use_cosine=USE_COSINE_DISTANCE,
-                batch_size=10000  # Smaller batches for sklearn
+                nlist=1024,      # 1024 Voronoi cells (good for 1M+ samples)
+                nprobe=64,       # Search 64 cells (good balance: speed vs accuracy)
+                batch_size=50000 # Process 50K test samples at a time
             )
+            
+            # Fallback to batched sklearn if FAISS failed
+            if test_cluster_labels is None:
+                print("\n   ⚠️ FAISS unavailable or failed, using batched sklearn (slower but exact)...")
+                test_cluster_labels = fast_cluster_assignment_sklearn_batched(
+                    training_embeddings,
+                    training_cluster_labels,
+                    test_embeddings,
+                    use_cosine=USE_COSINE_DISTANCE,
+                    batch_size=10000  # Smaller batches for sklearn
+                )
+            
+            print(f"   ✓ Cluster assignment complete!")
+            print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples to clusters")
         
-        print(f"   ✓ Cluster assignment complete!")
-        print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples to clusters")
+        # SAVE CHECKPOINT AFTER STEP 6 (most expensive step)
+        print(f"\n💾 Saving STEP 6 checkpoint...")
+        np.save(CHECKPOINT_STEP6, test_cluster_labels)
+        print(f"   ✓ Saved: {CHECKPOINT_STEP6.name}")
+        
+        # ====================================================================
+        # STEP 7: Hybrid prediction
+        # ====================================================================
+        print("\n" + "="*70)
+        print("STEP 7: HYBRID PREDICTION")
+        print("="*70)
+        
+        predictions, confidence, methods = hybrid_predict(
+            test_cluster_labels, cluster_dict,
+            training_embeddings, training_gt_labels,
+            test_embeddings, use_knn=True
+        )
+        
+        # Save predictions
+        np.save(OUTPUT_PREDICTIONS, predictions)
+        print(f"\n✓ Predictions saved to: {OUTPUT_PREDICTIONS}")
+        
+        # SAVE CHECKPOINT AFTER STEP 7 (prediction complete)
+        print(f"\n💾 Saving STEP 7 checkpoint...")
+        np.save(CHECKPOINT_STEP7_PRED, predictions)
+        np.save(CHECKPOINT_STEP7_CONF, confidence)
+        np.save(CHECKPOINT_STEP7_METHODS, methods)
+        
+        # Save metadata (needed for resume)
+        checkpoint_meta = {
+            'test_gt_labels': test_gt_labels,
+            'test_set_info': test_set_info,
+            'cluster_df': cluster_df
+        }
+        with open(CHECKPOINT_METADATA, 'wb') as f:
+            pickle.dump(checkpoint_meta, f)
+        
+        print(f"   ✓ Saved: {CHECKPOINT_STEP7_PRED.name}")
+        print(f"   ✓ Saved: {CHECKPOINT_STEP7_CONF.name}")
+        print(f"   ✓ Saved: {CHECKPOINT_STEP7_METHODS.name}")
+        print(f"   ✓ Saved: {CHECKPOINT_METADATA.name}")
+        print(f"\n✅ All checkpoints saved! You can resume from STEP 8 if needed.")
     
     # ========================================================================
-    # STEP 7: Hybrid prediction
-    # ========================================================================
-    print("\n" + "="*70)
-    print("STEP 7: HYBRID PREDICTION")
-    print("="*70)
-    
-    predictions, confidence, methods = hybrid_predict(
-        test_cluster_labels, cluster_dict,
-        training_embeddings, training_gt_labels,
-        test_embeddings, use_knn=True
-    )
-    
-    # Save predictions
-    np.save(OUTPUT_PREDICTIONS, predictions)
-    print(f"\n✓ Predictions saved to: {OUTPUT_PREDICTIONS}")
-    
-    # ========================================================================
-    # STEP 8: Calculate metrics
+    # STEP 8: Calculate metrics (ALWAYS RUN FROM HERE IF CHECKPOINT)
     # ========================================================================
     print("\n" + "="*70)
     print("STEP 8: CALCULATE METRICS")
@@ -1183,10 +1281,45 @@ def main():
     # Assign test set name to each sample
     test_set_names = []
     for i in range(len(test_gt_labels)):
+        assigned = False
         for set_info in test_set_info:
             if set_info['start_idx'] <= i < set_info['end_idx']:
                 test_set_names.append(set_info['name'])
+                assigned = True
                 break
+        
+        # If no test set assigned (shouldn't happen, but handle gracefully)
+        if not assigned:
+            test_set_names.append('unknown')
+            print(f"   ⚠️ WARNING: Sample {i} not assigned to any test set!")
+    
+    # Validate all arrays have same length
+    print(f"\n📏 Validating array lengths:")
+    print(f"   test_gt_labels:     {len(test_gt_labels):,}")
+    print(f"   test_cluster_labels: {len(test_cluster_labels):,}")
+    print(f"   predictions:        {len(predictions):,}")
+    print(f"   confidence:         {len(confidence):,}")
+    print(f"   methods:            {len(methods):,}")
+    print(f"   test_set_names:     {len(test_set_names):,}")
+    
+    # Check for length mismatches
+    expected_len = len(test_gt_labels)
+    if not all(len(arr) == expected_len for arr in [test_cluster_labels, predictions, confidence, methods, test_set_names]):
+        print(f"\n❌ ERROR: Length mismatch detected!")
+        print(f"   Expected length: {expected_len:,}")
+        print(f"   Truncating/padding arrays to match...")
+        
+        # Truncate to minimum length
+        min_len = min(len(test_gt_labels), len(test_cluster_labels), len(predictions), 
+                      len(confidence), len(methods), len(test_set_names))
+        print(f"   Using minimum length: {min_len:,}")
+        
+        test_gt_labels = test_gt_labels[:min_len]
+        test_cluster_labels = test_cluster_labels[:min_len]
+        predictions = predictions[:min_len]
+        confidence = confidence[:min_len]
+        methods = methods[:min_len]
+        test_set_names = test_set_names[:min_len]
     
     results_df = pd.DataFrame({
         'test_set': test_set_names,
