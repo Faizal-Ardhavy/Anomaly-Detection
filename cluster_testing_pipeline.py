@@ -1279,19 +1279,77 @@ def main():
     print("="*70)
     
     # Assign test set name to each sample
-    test_set_names = []
-    for i in range(len(test_gt_labels)):
-        assigned = False
-        for set_info in test_set_info:
-            if set_info['start_idx'] <= i < set_info['end_idx']:
-                test_set_names.append(set_info['name'])
-                assigned = True
-                break
+    # DEBUG: Print test_set_info to diagnose coverage issues
+    print(f"\n🔍 Debugging test_set_info:")
+    total_expected = len(test_gt_labels)
+    for set_info in test_set_info:
+        print(f"   {set_info['name']:12s}: [{set_info['start_idx']:7,} → {set_info['end_idx']:7,}] "
+              f"= {set_info['n_samples']:,} samples")
+    
+    # Calculate total coverage
+    total_covered = sum(s['n_samples'] for s in test_set_info)
+    print(f"\n   Total expected:  {total_expected:,}")
+    print(f"   Total coverage:  {total_covered:,}")
+    
+    if total_covered != total_expected:
+        print(f"   ⚠️ MISMATCH: Rebuilding test_set_info from actual data...")
         
-        # If no test set assigned (shouldn't happen, but handle gracefully)
-        if not assigned:
-            test_set_names.append('unknown')
-            print(f"   ⚠️ WARNING: Sample {i} not assigned to any test set!")
+        # Rebuild from TESTING_SETS (ground truth configuration)
+        test_set_info = []
+        current_idx = 0
+        for test_set in TESTING_SETS:
+            name = test_set['name']
+            metadata_path = test_set['metadata']
+            
+            # Count samples from metadata file
+            if metadata_path.exists():
+                # Quick count using pandas (memory efficient)
+                df_temp = pd.read_csv(metadata_path, sep='\t', usecols=['label'])
+                n_samples = len(df_temp)
+                del df_temp
+                
+                test_set_info.append({
+                    'name': name,
+                    'start_idx': current_idx,
+                    'end_idx': current_idx + n_samples,
+                    'n_samples': n_samples
+                })
+                current_idx += n_samples
+                print(f"      Rebuilt {name:12s}: [{test_set_info[-1]['start_idx']:7,} → "
+                      f"{test_set_info[-1]['end_idx']:7,}] = {n_samples:,} samples")
+            else:
+                print(f"      ⚠️ Metadata not found: {metadata_path}")
+        
+        # Verify rebuild
+        total_covered = sum(s['n_samples'] for s in test_set_info)
+        if total_covered != total_expected:
+            print(f"   ❌ ERROR: Still mismatch after rebuild! ({total_covered:,} vs {total_expected:,})")
+            print(f"   → Will use 'unknown' for unassigned samples")
+    
+    # Create test_set_names array using vectorized approach (faster)
+    print(f"\n📝 Assigning test set names...")
+    test_set_names = np.full(len(test_gt_labels), 'unknown', dtype=object)
+    
+    for set_info in test_set_info:
+        start = set_info['start_idx']
+        end = set_info['end_idx']
+        name = set_info['name']
+        
+        if end <= len(test_set_names):
+            test_set_names[start:end] = name
+            print(f"   ✓ {name:12s}: assigned {end-start:,} samples [{start:,} → {end:,})")
+        else:
+            print(f"   ⚠️ {name:12s}: end_idx ({end:,}) exceeds array length ({len(test_set_names):,})")
+            # Assign what we can
+            test_set_names[start:] = name
+            print(f"      → Assigned {len(test_set_names)-start:,} samples instead")
+    
+    # Count unknowns
+    n_unknown = np.sum(test_set_names == 'unknown')
+    if n_unknown > 0:
+        print(f"\n   ⚠️ WARNING: {n_unknown:,} samples assigned to 'unknown'")
+    else:
+        print(f"\n   ✓ All samples successfully assigned!")
     
     # Validate all arrays have same length
     print(f"\n📏 Validating array lengths:")
