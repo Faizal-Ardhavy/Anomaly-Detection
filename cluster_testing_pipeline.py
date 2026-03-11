@@ -1291,7 +1291,25 @@ def main():
     print(f"\n   Total expected:  {total_expected:,}")
     print(f"   Total coverage:  {total_covered:,}")
     
+    # Validate indices are sequential and non-overlapping
+    needs_rebuild = False
     if total_covered != total_expected:
+        needs_rebuild = True
+        print(f"   ⚠️ Total mismatch detected!")
+    else:
+        # Check for gaps/overlaps in indices
+        sorted_sets = sorted(test_set_info, key=lambda x: x['start_idx'])
+        for i, set_info in enumerate(sorted_sets):
+            expected_start = 0 if i == 0 else sorted_sets[i-1]['end_idx']
+            actual_start = set_info['start_idx']
+            
+            if actual_start != expected_start:
+                needs_rebuild = True
+                print(f"   ⚠️ Index mismatch for '{set_info['name']}': "
+                      f"expected start={expected_start:,}, got {actual_start:,}")
+                break
+    
+    if needs_rebuild:
         print(f"   ⚠️ MISMATCH: Rebuilding test_set_info from actual data...")
         
         # Rebuild from TESTING_SETS (ground truth configuration)
