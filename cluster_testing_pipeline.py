@@ -451,7 +451,7 @@ def determine_cluster_type_3way(cluster_id, size, purity):
 
 def analyze_cluster_characteristics(cluster_labels, embeddings=None, 
                                     compute_silhouette=True, 
-                                    silhouette_sample_size=100000):
+                                    silhouette_sample_size=1000000):
     """
     Analyze each cluster: UNSUPERVISED clustering statistics
     
@@ -459,7 +459,7 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         cluster_labels: Cluster assignments for each sample
         embeddings: Sample embeddings (needed for silhouette score)
         compute_silhouette: Whether to compute silhouette scores (default: True)
-        silhouette_sample_size: Max samples for silhouette (default: 100K for speed)
+        silhouette_sample_size: Max samples for silhouette (default: 1M for speed)
     
     NOTE: No longer uses training labels (removed template-based approach)
     Cluster types determined purely by size thresholds
