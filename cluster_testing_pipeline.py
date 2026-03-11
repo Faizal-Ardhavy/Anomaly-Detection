@@ -1,32 +1,34 @@
 """
 Comprehensive Cluster Testing Pipeline for Log Anomaly Detection
-3-WAY CLASSIFICATION (Normal / Non-Normal / Anomaly)
+GROUND TRUTH: 2-Class (Normal / Non-Normal) based on test set name
+PREDICTION: 3-Class (Normal / Non-Normal / Anomaly) based on cluster assignment
 
 Strategy for MANY clusters (dozens to hundreds):
-1. Load 3-way ground truth labels from template files:
-   - Normal template → NORMAL (0)
-   - Non-Normal template → NON-NORMAL (1)
-   - No template match → ANOMALY (2)
+1. Load ground truth labels based on test set name:
+   - Test set 'normal' → ALL samples = NORMAL (0)
+   - Test set 'nonnormal' → ALL samples = NON-NORMAL (1)
 
-2. Analyze cluster characteristics (purity, size, distribution)
+2. Analyze TRAINING cluster characteristics using template matching:
+   - Pure clusters (>95%) → Assign dominant label from training
+   - Mixed clusters → Use hybrid prediction strategy
 
-3. Hybrid prediction strategy:
-   - Noise points (DBSCAN) → ANOMALY
-   - Very small clusters (<50) → ANOMALY
-   - Small clusters (50-200) → NON-NORMAL
-   - Pure clusters (>95%) → Trust dominant label
-   - Medium purity (70-95%) → NON-NORMAL
-   - Low purity (<70%) → k-NN vote (3-way)
+3. Hybrid prediction strategy for TEST samples:
+   - Noise points (DBSCAN) → ANOMALY (label=2)
+   - Very small clusters (<50) → ANOMALY (label=2)
+   - Small clusters (50-200) → NON-NORMAL (label=1)
+   - Pure clusters (>95%) → Trust cluster's dominant label (0/1/2)
+   - Medium purity (70-95%) → NON-NORMAL (label=1)
+   - Low purity (<70%) → k-NN vote for 3-way classification
 
-4. Calculate 3x3 metrics: Per-class precision/recall/F1
+4. Calculate 2x3 metrics: 2 ground truth classes, 3 predicted classes
 
-5. Visualize: Cluster purity, 3x3 confusion matrix, statistics
+5. Visualize: Cluster purity, confusion matrix, prediction distribution
 
 Supports:
 - K-Means and DBSCAN
 - BGL and Thunderbird datasets  
 - Base/PCA256/PCA128 embeddings
-- Template-based ground truth
+- Ground truth from test set names (NOT template matching!)
 - Full testing dataset (no sampling)
 """
 
@@ -82,18 +84,18 @@ else:  # dbscan
     TRAINING_CONFIG_PATH = Path("dbscan/bgl_base_model/dbscan_config.npy")
     TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy")
 
-# Path to testing data - MULTIPLE SETS WITH SEPARATE METADATA
-# Each testing set should have its own embeddings file and metadata TSV
+# Path to testing data - MULTIPLE SETS (Ground truth based on set name!)
+# Each testing set should have embeddings file and a name indicating its class
+# Set name 'normal' → ground truth = NORMAL (0)
+# Set name 'nonnormal' → ground truth = NON-NORMAL (1)
 TESTING_SETS = [
     {
-        'name': 'normal',
+        'name': 'normal',  # Ground truth: ALL = NORMAL (0)
         'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_bgl_normal_embeddings.npy"),
-        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_normal_meta.tsv")
     },
     {
-        'name': 'nonnormal',
+        'name': 'nonnormal',  # Ground truth: ALL = NON-NORMAL (1)
         'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_bgl_non_normal_embeddings.npy"),
-        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_non_normal_meta.tsv")
     }
 ]
 
@@ -309,21 +311,27 @@ def _load_metadata_chunked(tsv_path: Path, normal_events: set, nonnormal_events:
     return labels_array
 
 
-def load_multiple_testing_sets(testing_sets, normal_template_path, nonnormal_template_path):
+def load_multiple_testing_sets(testing_sets, normal_template_path=None, nonnormal_template_path=None):
     """
-    Load multiple testing sets with separate metadata files
+    Load multiple testing sets - Ground truth based on set name
     
     Args:
-        testing_sets: List of dicts with keys: 'name', 'embeddings', 'metadata'
-        normal_template_path: Path to normal template file
-        nonnormal_template_path: Path to non-normal template file
+        testing_sets: List of dicts with keys: 'name', 'embeddings', 'metadata' (optional)
+        normal_template_path: Not used (kept for compatibility)
+        nonnormal_template_path: Not used (kept for compatibility)
     
     Returns:
         combined_embeddings: numpy array of all embeddings concatenated
-        combined_labels: numpy array of all ground truth labels
+        combined_labels: numpy array of all ground truth labels (based on set name)
         test_set_info: list of dicts with per-set statistics
+    
+    Ground Truth Assignment:
+        - Set name 'normal' → ALL samples = NORMAL (0)
+        - Set name 'nonnormal' → ALL samples = NON-NORMAL (1)
+        - Other names → Check if contains 'normal' or 'nonnormal'
     """
     print(f"\n📦 Loading {len(testing_sets)} testing sets...")
+    print(f"   📌 Ground truth assigned based on set name (not template matching)")
     
     all_embeddings = []
     all_labels = []
@@ -332,31 +340,37 @@ def load_multiple_testing_sets(testing_sets, normal_template_path, nonnormal_tem
     for test_set in testing_sets:
         name = test_set['name']
         embeddings_path = test_set['embeddings']
-        metadata_path = test_set['metadata']
         
-        print(f"\n  Loading test set: {name}")
-        print(f"    Embeddings: {embeddings_path.name}")
-        print(f"    Metadata:   {metadata_path.name}")
+        print(f"\n  📂 Loading test set: {name}")
+        print(f"     Embeddings: {embeddings_path.name}")
         
         # Load embeddings
         if not embeddings_path.exists():
             raise FileNotFoundError(f"Embeddings file not found: {embeddings_path}")
         embeddings = np.load(embeddings_path, mmap_mode='r')
-        print(f"    ✓ Loaded embeddings: {embeddings.shape}")
+        print(f"     ✓ Loaded embeddings: {embeddings.shape}")
         
-        # Load ground truth labels from metadata
-        labels = load_metadata_labels_3way(
-            metadata_path,
-            normal_template_path,
-            nonnormal_template_path
-        )
+        # Assign ground truth based on set name (NOT template matching!)
+        n_samples = len(embeddings)
+        name_lower = name.lower()
         
-        # Verify length match
-        if len(embeddings) != len(labels):
-            raise ValueError(
-                f"Mismatch for set '{name}': "
-                f"embeddings={len(embeddings)}, labels={len(labels)}"
-            )
+        if 'normal' in name_lower and 'non' not in name_lower:
+            # Set name contains "normal" (but not "nonnormal") → NORMAL
+            ground_truth_label = 0  # NORMAL
+            label_name = "NORMAL"
+        elif 'nonnormal' in name_lower or 'non_normal' in name_lower or 'non-normal' in name_lower:
+            # Set name contains "nonnormal" → NON-NORMAL
+            ground_truth_label = 1  # NON-NORMAL
+            label_name = "NON-NORMAL"
+        else:
+            # Unknown set name, try to infer or raise error
+            print(f"     ⚠️ WARNING: Cannot infer ground truth from set name '{name}'")
+            print(f"     → Please rename set to include 'normal' or 'nonnormal'")
+            raise ValueError(f"Cannot determine ground truth for test set: {name}")
+        
+        # Create labels array (all samples have same label based on set name)
+        labels = np.full(n_samples, ground_truth_label, dtype=np.int32)
+        print(f"     ✓ Ground truth: ALL {n_samples:,} samples = {label_name} ({ground_truth_label})")
         
         # Store info
         test_set_info.append({
@@ -674,33 +688,56 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
 
 def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
     """
-    Calculate comprehensive classification metrics (3-way classification)
+    Calculate comprehensive classification metrics
+    
+    Ground Truth: 2-class (NORMAL=0, NON-NORMAL=1)
+    Predictions: 3-class (NORMAL=0, NON-NORMAL=1, ANOMALY=2)
+    
+    Result: 2x3 confusion matrix 
     """
-    print("\n📊 Calculating metrics (3-way classification)...")
+    print("\n📊 Calculating metrics...")
+    
+    # Detect unique ground truth classes
+    unique_true = sorted(set(y_true))
+    unique_pred = sorted(set(y_pred))
+    
+    print(f"   Ground truth classes: {unique_true} → {[['NORMAL', 'NON-NORMAL', 'ANOMALY'][i] for i in unique_true]}")
+    print(f"   Prediction classes:   {unique_pred} → {[['NORMAL', 'NON-NORMAL', 'ANOMALY'][i] for i in unique_pred]}")
     
     # Overall accuracy
     accuracy = accuracy_score(y_true, y_pred)
     
-    # 3x3 confusion matrix
-    cm = confusion_matrix(y_true, y_pred, labels=[0, 1, 2])
+    # Confusion matrix: rows=true classes, cols=predicted classes
+    # If ground truth has 2 classes (0,1) and predictions have 3 classes (0,1,2) → 2x3 matrix
+    cm = confusion_matrix(y_true, y_pred, labels=unique_true)
     
-    # Per-class metrics using classification_report
+    # Per-class metrics - only for ground truth classes
+    true_class_names = ['NORMAL', 'NON-NORMAL', 'ANOMALY']
+    pred_class_names = ['NORMAL', 'NON-NORMAL', 'ANOMALY']
+    
+    # Calculate metrics only for classes that exist in ground truth
+    report_labels = [i for i in unique_true if i in [0, 1, 2]]
+    report_names = [true_class_names[i] for i in report_labels]
+    
     report = classification_report(
         y_true, y_pred, 
-        labels=[0, 1, 2],
-        target_names=['NORMAL', 'NON-NORMAL', 'ANOMALY'],
+        labels=report_labels,
+        target_names=report_names,
         output_dict=True,
         zero_division=0
     )
     
     print(f"\n{'='*70}")
-    print("OVERALL METRICS (3-WAY CLASSIFICATION)")
+    if len(unique_true) == 2:
+        print("OVERALL METRICS (2-CLASS GROUND TRUTH vs 3-CLASS PREDICTION)")
+    else:
+        print("OVERALL METRICS")
     print(f"{'='*70}")
     print(f"\nOverall Accuracy: {accuracy:.4f}")
     
-    print(f"\nPer-Class Metrics:")
+    print(f"\nPer-Class Metrics (Ground Truth Classes Only):")
     print(f"                  Precision  Recall   F1-Score  Support")
-    for label_name in ['NORMAL', 'NON-NORMAL', 'ANOMALY']:
+    for label_name in report_names:
         p = report[label_name]['precision']
         r = report[label_name]['recall']
         f = report[label_name]['f1-score']
@@ -712,23 +749,59 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
     print(f"Weighted Avg:       {report['weighted avg']['precision']:.4f}    "
           f"{report['weighted avg']['recall']:.4f}    {report['weighted avg']['f1-score']:.4f}")
     
-    print(f"\n3x3 Confusion Matrix:")
+    # Dynamic confusion matrix display
+    print(f"\nConfusion Matrix ({len(unique_true)}x{len(unique_pred)}):")
     print(f"                 Predicted")
-    print(f"                 N      NN     A")
-    print(f"    True  N  [{cm[0,0]:>6} {cm[0,1]:>6} {cm[0,2]:>6}]")
-    print(f"          NN [{cm[1,0]:>6} {cm[1,1]:>6} {cm[1,2]:>6}]")
-    print(f"          A  [{cm[2,0]:>6} {cm[2,1]:>6} {cm[2,2]:>6}]")
     
-    # Critical error analysis
-    if cm[2].sum() > 0:
-        print(f"\nCritical Errors:")
-        print(f"  A → N (Anomaly missed as Normal):     {cm[2,0]:,} ({cm[2,0]/cm[2].sum()*100:.1f}%)")
-        print(f"  A → NN (Anomaly downgrade):           {cm[2,1]:,} ({cm[2,1]/cm[2].sum()*100:.1f}%)")
+    # Header
+    header = "                 "
+    for pred_class in unique_pred:
+        header += f"{pred_class_names[pred_class][:2]:>7}"
+    print(header)
     
-    if cm[1].sum() > 0:
-        print(f"\nNon-Normal Errors:")
-        print(f"  NN → N (Non-Normal missed as Normal): {cm[1,0]:,} ({cm[1,0]/cm[1].sum()*100:.1f}%)")
-        print(f"  NN → A (Non-Normal escalated):        {cm[1,2]:,} ({cm[1,2]/cm[1].sum()*100:.1f}%)")
+    # Rows
+    for i, true_class in enumerate(unique_true):
+        row = f"    True  {true_class_names[true_class][:2]:2s} ["
+        for j, pred_class in enumerate(unique_pred):
+            if j < cm.shape[1]:
+                row += f"{cm[i,j]:>6} "
+            else:
+                row += "     0 "
+        row += "]"
+        print(row)
+    
+    # Error analysis
+    if len(unique_true) == 2:
+        # 2-class ground truth analysis
+        print(f"\n📊 Prediction Distribution:")
+        for i, true_class in enumerate(unique_true):
+            true_name = true_class_names[true_class]
+            total = cm[i].sum()
+            print(f"\n  {true_name} ({total:,} samples):")
+            for j, pred_class in enumerate(unique_pred):
+                if j < cm.shape[1]:
+                    count = cm[i, j]
+                    pct = count / total * 100 if total > 0 else 0
+                    pred_name = pred_class_names[pred_class]
+                    status = "✓ Correct" if true_class == pred_class else "✗ Wrong"
+                    print(f"    → Predicted as {pred_name:12s}: {count:7,} ({pct:5.2f}%) {status}")
+    else:
+        # 3-class analysis (legacy)
+        if len(unique_true) > 2 and 2 in unique_true:
+            anomaly_idx = unique_true.index(2)
+            if cm[anomaly_idx].sum() > 0:
+                print(f"\nCritical Errors:")
+                print(f"  A → N (Anomaly missed as Normal):     {cm[anomaly_idx,0]:,} ({cm[anomaly_idx,0]/cm[anomaly_idx].sum()*100:.1f}%)")
+                if cm.shape[1] > 1:
+                    print(f"  A → NN (Anomaly downgrade):           {cm[anomaly_idx,1]:,} ({cm[anomaly_idx,1]/cm[anomaly_idx].sum()*100:.1f}%)")
+        
+        if 1 in unique_true:
+            nn_idx = unique_true.index(1)
+            if cm[nn_idx].sum() > 0:
+                print(f"\nNon-Normal Errors:")
+                print(f"  NN → N (Non-Normal missed as Normal): {cm[nn_idx,0]:,} ({cm[nn_idx,0]/cm[nn_idx].sum()*100:.1f}%)")
+                if cm.shape[1] > 2:
+                    print(f"  NN → A (Non-Normal escalated):        {cm[nn_idx,2]:,} ({cm[nn_idx,2]/cm[nn_idx].sum()*100:.1f}%)")
     
     # Per-method analysis (if available)
     if method_labels is not None:
@@ -742,39 +815,49 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
             method_acc = accuracy_score(y_true[mask], y_pred[mask])
             n_samples = mask.sum()
             
-            # Count per class
+            # Count per class in ground truth
             y_true_method = y_true[mask]
-            n_normal = np.sum(y_true_method == 0)
-            n_nonnormal = np.sum(y_true_method == 1)
-            n_anomaly = np.sum(y_true_method == 2)
+            class_counts = {}
+            for cls in unique_true:
+                class_counts[true_class_names[cls]] = np.sum(y_true_method == cls)
             
             print(f"\n{method.upper():12s}: {n_samples:,} samples ({n_samples/len(y_true)*100:.1f}%)")
-            print(f"  Distribution: N={n_normal:,} NN={n_nonnormal:,} A={n_anomaly:,}")
+            dist_str = "  Distribution: " + " ".join([f"{name}={count:,}" for name, count in class_counts.items()])
+            print(dist_str)
             print(f"  Accuracy: {method_acc:.4f}")
-            mask = np.array(method_labels) == method
-            acc = accuracy_score(y_true[mask], y_pred[mask])
-            count = np.sum(mask)
-            pct = count / len(y_pred) * 100
-            
-            print(f"\n{method.upper():10s}: {count:,} samples ({pct:.1f}%)")
-            print(f"  Accuracy: {acc:.4f}")
     
     # Save metrics to file
     with open(OUTPUT_METRICS, 'w') as f:
         f.write("="*70 + "\n")
         f.write(f"TESTING RESULTS - {DATASET} {ALGORITHM.upper()} {EMBEDDING_TYPE.upper()}\n")
-        f.write("3-WAY CLASSIFICATION\n")
+        if len(unique_true) == 2:
+            f.write("2-CLASS GROUND TRUTH vs 3-CLASS PREDICTION\n")
+        else:
+            f.write("3-WAY CLASSIFICATION\n")
         f.write("="*70 + "\n\n")
         f.write(f"Overall Accuracy: {accuracy:.4f}\n\n")
         f.write(classification_report(y_true, y_pred, 
-                                      labels=[0, 1, 2],
-                                      target_names=['NORMAL', 'NON-NORMAL', 'ANOMALY']))
-        f.write("\n\n3x3 Confusion Matrix:\n")
+                                      labels=report_labels,
+                                      target_names=report_names))
+        f.write(f"\n\nConfusion Matrix ({len(unique_true)}x{len(unique_pred)}):\n")
         f.write("                 Predicted\n")
-        f.write("                 N      NN     A\n")
-        f.write(f"    True  N  [{cm[0,0]:>6} {cm[0,1]:>6} {cm[0,2]:>6}]\n")
-        f.write(f"          NN [{cm[1,0]:>6} {cm[1,1]:>6} {cm[1,2]:>6}]\n")
-        f.write(f"          A  [{cm[2,0]:>6} {cm[2,1]:>6} {cm[2,2]:>6}]\n")
+        
+        # Header
+        header = "                 "
+        for pred_class in unique_pred:
+            header += f"{pred_class_names[pred_class][:2]:>7}"
+        f.write(header + "\n")
+        
+        # Rows
+        for i, true_class in enumerate(unique_true):
+            row = f"    True  {true_class_names[true_class][:2]:2s} ["
+            for j, pred_class in enumerate(unique_pred):
+                if j < cm.shape[1]:
+                    row += f"{cm[i,j]:>6} "
+                else:
+                    row += "     0 "
+            row += "]\n"
+            f.write(row)
     
     print(f"\n✓ Metrics saved to: {OUTPUT_METRICS}")
     
@@ -809,15 +892,24 @@ def visualize_results(cluster_df, y_true, y_pred, metrics):
     ax1.legend()
     ax1.grid(alpha=0.3)
     
-    # 2. Confusion Matrix (3x3)
+    # 2. Confusion Matrix (dynamic size)
     ax2 = axes[0, 1]
     cm = metrics['confusion_matrix']
+    
+    # Determine labels dynamically
+    unique_true = sorted(set(y_true))
+    unique_pred = sorted(set(y_pred))
+    class_names = ['Normal', 'Non-Normal', 'Anomaly']
+    
+    true_labels = [class_names[i] for i in unique_true]
+    pred_labels = [class_names[i] for i in unique_pred]
+    
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax2,
-                xticklabels=['Normal', 'Non-Normal', 'Anomaly'],
-                yticklabels=['Normal', 'Non-Normal', 'Anomaly'])
+                xticklabels=pred_labels,
+                yticklabels=true_labels)
     ax2.set_xlabel('Predicted')
-    ax2.set_ylabel('Actual')
-    ax2.set_title('3x3 Confusion Matrix')
+    ax2.set_ylabel('Ground Truth')
+    ax2.set_title(f'{len(unique_true)}x{len(unique_pred)} Confusion Matrix')
     
     # 3. Cluster Type Distribution
     ax3 = axes[1, 0]
@@ -847,18 +939,18 @@ def visualize_results(cluster_df, y_true, y_pred, metrics):
     plt.savefig(OUTPUT_DIR / "analysis_overview.png", dpi=300, bbox_inches='tight')
     print(f"   ✓ Saved overview plot")
     
-    # Separate detailed confusion matrix (3x3)
+    # Separate detailed confusion matrix (dynamic size)
     plt.figure(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt='d', cmap='RdYlGn_r',
-                xticklabels=['Normal', 'Non-Normal', 'Anomaly'],
-                yticklabels=['Normal', 'Non-Normal', 'Anomaly'],
+                xticklabels=pred_labels,
+                yticklabels=true_labels,
                 cbar_kws={'label': 'Count'})
     plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.title(f'3x3 Confusion Matrix - {DATASET} {ALGORITHM.upper()}')
+    plt.ylabel('Ground Truth Label')
+    plt.title(f'{len(unique_true)}x{len(unique_pred)} Confusion Matrix - {DATASET} {ALGORITHM.upper()}')
     plt.tight_layout()
     plt.savefig(OUTPUT_CONFUSION_MATRIX, dpi=300, bbox_inches='tight')
-    print(f"   ✓ Saved 3x3 confusion matrix")
+    print(f"   ✓ Saved confusion matrix ({len(unique_true)}x{len(unique_pred)})")
     
     plt.close('all')
 
@@ -1021,9 +1113,21 @@ def fast_cluster_assignment_sklearn_batched(training_embeddings, training_cluste
 # ============================================================================
 
 def main():
+    """
+    Comprehensive Cluster Testing Pipeline
+    
+    Ground Truth: 2-CLASS (based on test file name)
+        - normal_embeddings.npy → ALL = NORMAL (0)
+        - nonnormal_embeddings.npy → ALL = NON-NORMAL (1)
+    
+    Predictions: 3-CLASS (based on cluster assignment)
+        - NORMAL (0), NON-NORMAL (1), ANOMALY (2)
+    
+    Result: 2x3 confusion matrix showing prediction distribution
+    """
     print("="*70)
     print("COMPREHENSIVE CLUSTER TESTING PIPELINE")
-    print("3-WAY CLASSIFICATION (Normal/Non-Normal/Anomaly)")
+    print("2-CLASS GROUND TRUTH + 3-CLASS PREDICTION")
     print("="*70)
     print(f"\nDataset: {DATASET}")
     print(f"Algorithm: {ALGORITHM}")
@@ -1092,10 +1196,10 @@ def main():
     # ========================================================================
     if not goto_step_8:
         # ====================================================================
-        # STEP 1: Load 3-way ground truth labels from templates
+        # STEP 1: Load training data with 3-way labels (for cluster analysis)
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 1: LOAD 3-WAY GROUND TRUTH LABELS")
+        print("STEP 1: LOAD TRAINING DATA (3-way for cluster characterization)")
         print("="*70)
         
         training_gt_labels = load_metadata_labels_3way(
@@ -1162,13 +1266,13 @@ def main():
             training_embeddings = training_embeddings[:len(training_cluster_labels)]
         
         # ====================================================================
-        # STEP 5: Load testing data
+        # STEP 5: Load testing data (2-class ground truth from file names)
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 5: LOAD TESTING DATA")
+        print("STEP 5: LOAD TESTING DATA (2-class ground truth)")
         print("="*70)
         
-        # Load multiple testing sets with separate metadata
+        # Load multiple testing sets - ground truth based on file name
         test_embeddings, test_gt_labels, test_set_info = load_multiple_testing_sets(
             TESTING_SETS,
             NORMAL_TEMPLATE_PATH,
@@ -1225,10 +1329,10 @@ def main():
         print(f"   ✓ Saved: {CHECKPOINT_STEP6.name}")
         
         # ====================================================================
-        # STEP 7: Hybrid prediction
+        # STEP 7: Hybrid prediction (3-class output)
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 7: HYBRID PREDICTION")
+        print("STEP 7: HYBRID PREDICTION (3-class output)")
         print("="*70)
         
         predictions, confidence, methods = hybrid_predict(
@@ -1263,10 +1367,10 @@ def main():
         print(f"\n✅ All checkpoints saved! You can resume from STEP 8 if needed.")
     
     # ========================================================================
-    # STEP 8: Calculate metrics (ALWAYS RUN FROM HERE IF CHECKPOINT)
+    # STEP 8: Calculate metrics (2-class ground truth vs 3-class predictions)
     # ========================================================================
     print("\n" + "="*70)
-    print("STEP 8: CALCULATE METRICS")
+    print("STEP 8: CALCULATE METRICS (2x3 confusion matrix)")
     print("="*70)
     
     metrics = calculate_metrics(test_gt_labels, predictions, confidence, methods)
@@ -1423,6 +1527,11 @@ def main():
     # Calculate detailed per-set metrics
     print(f"\n📈 Calculating per-set detailed metrics...")
     per_set_metrics = []
+    
+    # Detect unique classes in ground truth
+    unique_true = sorted(set(test_gt_labels))
+    class_names = ['NORMAL', 'NON-NORMAL', 'ANOMALY']
+    
     for set_info in test_set_info:
         set_name = set_info['name']
         set_mask = results_df['test_set'] == set_name
@@ -1430,31 +1539,36 @@ def main():
         set_y_true = results_df[set_mask]['true_label'].values
         set_y_pred = results_df[set_mask]['predicted_label'].values
         
-        # Per-class metrics for this set
+        # Per-class metrics for this set (dynamic based on ground truth classes)
+        report_labels = [i for i in unique_true if i in [0, 1, 2]]
+        report_names = [class_names[i] for i in report_labels]
+        
         set_report = classification_report(
             set_y_true, set_y_pred,
-            labels=[0, 1, 2],
-            target_names=['NORMAL', 'NON-NORMAL', 'ANOMALY'],
+            labels=report_labels,
+            target_names=report_names,
             output_dict=True,
             zero_division=0
         )
         
-        per_set_metrics.append({
+        # Build metrics dict dynamically
+        metrics_dict = {
             'test_set': set_name,
             'n_samples': int(set_mask.sum()),
             'accuracy': accuracy_score(set_y_true, set_y_pred),
-            'normal_precision': set_report['NORMAL']['precision'],
-            'normal_recall': set_report['NORMAL']['recall'],
-            'normal_f1': set_report['NORMAL']['f1-score'],
-            'nonnormal_precision': set_report['NON-NORMAL']['precision'],
-            'nonnormal_recall': set_report['NON-NORMAL']['recall'],
-            'nonnormal_f1': set_report['NON-NORMAL']['f1-score'],
-            'anomaly_precision': set_report['ANOMALY']['precision'],
-            'anomaly_recall': set_report['ANOMALY']['recall'],
-            'anomaly_f1': set_report['ANOMALY']['f1-score'],
-            'macro_f1': set_report['macro avg']['f1-score'],
-            'weighted_f1': set_report['weighted avg']['f1-score']
-        })
+        }
+        
+        # Add per-class metrics only for ground truth classes
+        for label_idx, label_name in zip(report_labels, report_names):
+            label_key = label_name.lower().replace('-', '')
+            metrics_dict[f'{label_key}_precision'] = set_report[label_name]['precision']
+            metrics_dict[f'{label_key}_recall'] = set_report[label_name]['recall']
+            metrics_dict[f'{label_key}_f1'] = set_report[label_name]['f1-score']
+        
+        metrics_dict['macro_f1'] = set_report['macro avg']['f1-score']
+        metrics_dict['weighted_f1'] = set_report['weighted avg']['f1-score']
+        
+        per_set_metrics.append(metrics_dict)
     
     per_set_df = pd.DataFrame(per_set_metrics)
     per_set_df.to_csv(OUTPUT_PER_SET_METRICS, index=False)
@@ -1484,11 +1598,22 @@ def main():
     print(f"  - Detailed results:  {OUTPUT_DETAILED_RESULTS.name}")
     print(f"  - Visualizations:    analysis_overview.png, confusion_matrix.png")
     
-    print(f"\n🎯 Final Results (3-Way Classification):")
+    # Detect unique ground truth and prediction classes for summary
+    unique_true = sorted(set(test_gt_labels))
+    unique_pred = sorted(set(predictions))
+    class_names = ['NORMAL', 'NON-NORMAL', 'ANOMALY']
+    
+    print(f"\n🎯 Final Results:")
+    print(f"  Ground Truth: {len(unique_true)}-class → {[class_names[i] for i in unique_true]}")
+    print(f"  Predictions:  {len(unique_pred)}-class → {[class_names[i] for i in unique_pred]}")
     print(f"  Overall Accuracy: {metrics['accuracy']:.4f}")
-    print(f"  Normal F1:        {metrics['report']['NORMAL']['f1-score']:.4f}")
-    print(f"  Non-Normal F1:    {metrics['report']['NON-NORMAL']['f1-score']:.4f}")
-    print(f"  Anomaly F1:       {metrics['report']['ANOMALY']['f1-score']:.4f}")
+    
+    # Print F1 scores only for classes present in ground truth
+    for i in unique_true:
+        label_name = class_names[i]
+        if label_name in metrics['report']:
+            print(f"  {label_name:12s} F1:  {metrics['report'][label_name]['f1-score']:.4f}")
+    
     print(f"  Macro Avg F1:     {metrics['report']['macro avg']['f1-score']:.4f}")
 
 
