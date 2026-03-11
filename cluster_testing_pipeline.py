@@ -3,32 +3,42 @@ Comprehensive Cluster Testing Pipeline for Log Anomaly Detection
 GROUND TRUTH: 2-Class (Normal / Non-Normal) based on test set name
 PREDICTION: 3-Class (Normal / Non-Normal / Anomaly) based on cluster assignment
 
-Strategy for MANY clusters (dozens to hundreds):
+UNSUPERVISED APPROACH - NO TEMPLATE-BASED LABELING!
+
+Strategy:
 1. Load ground truth labels based on test set name:
    - Test set 'normal' → ALL samples = NORMAL (0)
    - Test set 'nonnormal' → ALL samples = NON-NORMAL (1)
 
-2. Analyze TRAINING cluster characteristics using template matching:
-   - Pure clusters (>95%) → Assign dominant label from training
-   - Mixed clusters → Use hybrid prediction strategy
+2. Analyze training cluster characteristics (UNSUPERVISED):
+   - Size-based classification (noise/very_small/small/regular)
+   - Silhouette Score: measures cluster cohesion and separation (-1 to +1)
+     * +1: excellent cluster quality
+     * 0: overlapping clusters
+     * -1: misassigned samples
 
 3. Hybrid prediction strategy for TEST samples:
    - Noise points (DBSCAN) → ANOMALY (label=2)
    - Very small clusters (<50) → ANOMALY (label=2)
    - Small clusters (50-200) → NON-NORMAL (label=1)
-   - Pure clusters (>95%) → Trust cluster's dominant label (0/1/2)
-   - Medium purity (70-95%) → NON-NORMAL (label=1)
-   - Low purity (<70%) → k-NN vote for 3-way classification
+   - Regular clusters (≥200) → k-NN vote using cluster IDs as pseudo-labels
 
-4. Calculate 2x3 metrics: 2 ground truth classes, 3 predicted classes
+4. k-NN voting uses cluster IDs (not ground truth labels):
+   - Neighbor's cluster type determines vote
+   - noise/very_small → ANOMALY
+   - small → NON-NORMAL
+   - regular → NORMAL
 
-5. Visualize: Cluster purity, confusion matrix, prediction distribution
+5. Calculate 2x3 metrics: 2 ground truth classes, 3 predicted classes
+
+6. Visualize: Cluster sizes, silhouette scores, confusion matrix, prediction distribution
 
 Supports:
 - K-Means and DBSCAN
 - BGL and Thunderbird datasets  
 - Base/PCA256/PCA128 embeddings
-- Ground truth from test set names (NOT template matching!)
+- Ground truth from test set names ONLY (templates removed!)
+- Silhouette Score for cluster quality assessment
 - Full testing dataset (no sampling)
 """
 
@@ -43,7 +53,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
-    confusion_matrix, classification_report
+    confusion_matrix, classification_report, silhouette_score, silhouette_samples
 )
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
@@ -439,59 +449,118 @@ def determine_cluster_type_3way(cluster_id, size, purity):
         return "low_purity"
 
 
-def analyze_cluster_characteristics(cluster_labels, ground_truth_labels):
+def analyze_cluster_characteristics(cluster_labels, embeddings=None, 
+                                    compute_silhouette=True, 
+                                    silhouette_sample_size=100000):
     """
-    Analyze each cluster: purity, size, dominant label (3-way classification)
+    Analyze each cluster: UNSUPERVISED clustering statistics
+    
+    Args:
+        cluster_labels: Cluster assignments for each sample
+        embeddings: Sample embeddings (needed for silhouette score)
+        compute_silhouette: Whether to compute silhouette scores (default: True)
+        silhouette_sample_size: Max samples for silhouette (default: 100K for speed)
+    
+    NOTE: No longer uses training labels (removed template-based approach)
+    Cluster types determined purely by size thresholds
+    
+    Silhouette Score:
+    - Range: -1 to +1
+    - +1: Sample very well matched to cluster, far from others (excellent)
+    - 0: Sample on boundary between clusters (ambiguous)
+    - -1: Sample possibly assigned to wrong cluster (poor)
     
     Returns:
     - DataFrame with cluster statistics
     - Dict with cluster_id → cluster_info
     """
-    print("\n🔍 Analyzing cluster characteristics...")
+    print("\n🔍 Analyzing cluster characteristics (UNSUPERVISED + Silhouette)...")
     
     unique_clusters = sorted(set(cluster_labels))
     cluster_info = []
     
+    # Calculate silhouette scores if embeddings provided
+    silhouette_per_sample = None
+    overall_silhouette = None
+    
+    if compute_silhouette and embeddings is not None:
+        print(f"\n   Computing Silhouette scores...")
+        
+        # Filter out noise points (-1) as silhouette doesn't apply to noise
+        non_noise_mask = (cluster_labels != -1)
+        n_non_noise = non_noise_mask.sum()
+        
+        if n_non_noise > 0:
+            # Subsample for large datasets (silhouette is O(n²) for exact calculation)
+            if n_non_noise > silhouette_sample_size:
+                print(f"   Dataset large ({n_non_noise:,} samples), subsampling to {silhouette_sample_size:,}...")
+                non_noise_indices = np.where(non_noise_mask)[0]
+                subsample_idx = np.random.choice(non_noise_indices, silhouette_sample_size, replace=False)
+                
+                subsample_labels = cluster_labels[subsample_idx]
+                subsample_embeddings = embeddings[subsample_idx]
+                
+                # Compute silhouette on subsample
+                silhouette_per_sample_subsample = silhouette_samples(subsample_embeddings, subsample_labels)
+                overall_silhouette = silhouette_score(subsample_embeddings, subsample_labels)
+                
+                # Map back to full dataset (only for subsampled points)
+                silhouette_per_sample = np.full(len(cluster_labels), np.nan)
+                silhouette_per_sample[subsample_idx] = silhouette_per_sample_subsample
+                
+                print(f"   ✓ Overall Silhouette Score (sampled): {overall_silhouette:.4f}")
+            else:
+                # Small enough, compute exactly
+                non_noise_labels = cluster_labels[non_noise_mask]
+                non_noise_embeddings = embeddings[non_noise_mask]
+                
+                silhouette_per_sample_non_noise = silhouette_samples(non_noise_embeddings, non_noise_labels)
+                overall_silhouette = silhouette_score(non_noise_embeddings, non_noise_labels)
+                
+                # Map to full dataset
+                silhouette_per_sample = np.full(len(cluster_labels), np.nan)
+                silhouette_per_sample[non_noise_mask] = silhouette_per_sample_non_noise
+                
+                print(f"   ✓ Overall Silhouette Score: {overall_silhouette:.4f}")
+        else:
+            print(f"   ⚠️ All samples are noise, cannot compute silhouette")
+    
+    # Analyze each cluster
     for cluster_id in tqdm(unique_clusters, desc="Analyzing clusters"):
         mask = cluster_labels == cluster_id
         n_samples = np.sum(mask)
         
-        # Get ground truth labels for this cluster (3 classes)
-        labels_in_cluster = ground_truth_labels[mask]
-        n_normal = np.sum(labels_in_cluster == 0)
-        n_nonnormal = np.sum(labels_in_cluster == 1)
-        n_anomaly = np.sum(labels_in_cluster == 2)
+        # Classify cluster type PURELY BY SIZE (no labels needed)
+        if cluster_id == -1:
+            cluster_type = "noise"
+        elif n_samples < VERY_SMALL_CLUSTER_THRESHOLD:
+            cluster_type = "very_small"
+        elif n_samples < SMALL_CLUSTER_THRESHOLD:
+            cluster_type = "small"
+        else:
+            cluster_type = "regular"  # No purity-based classification
         
-        # Calculate purity (max class ratio)
-        total = n_normal + n_nonnormal + n_anomaly
-        purity = max(n_normal, n_nonnormal, n_anomaly) / total if total > 0 else 0
-        
-        # Dominant label = most frequent class
-        class_counts = [(n_normal, 0), (n_nonnormal, 1), (n_anomaly, 2)]
-        dominant_label = max(class_counts)[1]
-        
-        # Classify cluster type using 3-way strategy
-        cluster_type = determine_cluster_type_3way(cluster_id, n_samples, purity)
+        # Calculate mean silhouette for this cluster (skip noise)
+        cluster_silhouette = None
+        if silhouette_per_sample is not None and cluster_id != -1:
+            cluster_sil_scores = silhouette_per_sample[mask]
+            # Remove NaN values (from non-sampled points)
+            cluster_sil_scores = cluster_sil_scores[~np.isnan(cluster_sil_scores)]
+            if len(cluster_sil_scores) > 0:
+                cluster_silhouette = cluster_sil_scores.mean()
         
         cluster_info.append({
             'cluster_id': cluster_id,
             'n_samples': n_samples,
-            'n_normal': n_normal,
-            'n_nonnormal': n_nonnormal,
-            'n_anomaly': n_anomaly,
-            'pct_normal': (n_normal / n_samples) * 100,
-            'pct_nonnormal': (n_nonnormal / n_samples) * 100,
-            'pct_anomaly': (n_anomaly / n_samples) * 100,
-            'purity': purity,
-            'dominant_label': dominant_label,
-            'cluster_type': cluster_type
+            'cluster_type': cluster_type,
+            'silhouette_score': cluster_silhouette
         })
     
     df = pd.DataFrame(cluster_info)
     
     # Summary statistics
     print(f"\n{'='*70}")
-    print("CLUSTER CHARACTERISTICS SUMMARY")
+    print("CLUSTER CHARACTERISTICS SUMMARY (UNSUPERVISED)")
     print(f"{'='*70}")
     
     print(f"\nTotal clusters: {len(df)}")
@@ -503,20 +572,31 @@ def analyze_cluster_characteristics(cluster_labels, ground_truth_labels):
         samples = df[df['cluster_type'] == ctype]['n_samples'].sum()
         print(f"  {ctype:10s}: {count:4d} clusters, {samples:,} samples")
     
-    # Purity statistics
-    print(f"\nPurity Statistics:")
-    print(f"  Mean:   {df['purity'].mean():.4f}")
-    print(f"  Median: {df['purity'].median():.4f}")
-    print(f"  Std:    {df['purity'].std():.4f}")
-    print(f"  Min:    {df['purity'].min():.4f}")
-    print(f"  Max:    {df['purity'].max():.4f}")
-    
     # Size statistics
     print(f"\nCluster Size Statistics:")
     print(f"  Mean:   {df['n_samples'].mean():.0f}")
     print(f"  Median: {df['n_samples'].median():.0f}")
     print(f"  Min:    {df['n_samples'].min()}")
     print(f"  Max:    {df['n_samples'].max():,}")
+    
+    # Silhouette statistics (exclude noise and NaN)
+    if 'silhouette_score' in df.columns:
+        valid_sil = df[df['cluster_id'] != -1]['silhouette_score'].dropna()
+        if len(valid_sil) > 0:
+            print(f"\nSilhouette Score Statistics (excluding noise):")
+            print(f"  Overall Mean: {overall_silhouette:.4f}" if overall_silhouette else "  Overall Mean: N/A")
+            print(f"  Per-Cluster Mean: {valid_sil.mean():.4f}")
+            print(f"  Per-Cluster Median: {valid_sil.median():.4f}")
+            print(f"  Per-Cluster Std: {valid_sil.std():.4f}")
+            print(f"  Per-Cluster Min: {valid_sil.min():.4f}")
+            print(f"  Per-Cluster Max: {valid_sil.max():.4f}")
+            
+            # Interpretation guide
+            print(f"\n  Interpretation:")
+            print(f"    > 0.7  : Strong structure, well-separated clusters")
+            print(f"    0.5-0.7: Reasonable structure")
+            print(f"    0.25-0.5: Weak structure, overlapping clusters")
+            print(f"    < 0.25 : No substantial structure")
     
     # Create lookup dict
     cluster_dict = df.set_index('cluster_id').to_dict('index')
@@ -525,23 +605,24 @@ def analyze_cluster_characteristics(cluster_labels, ground_truth_labels):
 
 
 def hybrid_predict(test_cluster_labels, cluster_dict, 
-                   training_embeddings, training_labels, 
+                   training_embeddings, training_cluster_labels, 
                    test_embeddings, use_knn=True):
     """
-    Hybrid prediction strategy (3-way classification):
+    Hybrid prediction strategy (3-way classification) - UNSUPERVISED:
     1. Noise points → ANOMALY (label=2)
     2. Very small clusters (<50) → ANOMALY (label=2)
     3. Small clusters (50-200) → NON-NORMAL (label=1)
-    4. Pure clusters (>95%) → Use cluster's dominant label (0/1/2)
-    5. Medium purity (70-95%) → NON-NORMAL (label=1)
-    6. Low purity (<70%) → Use k-NN vote for 3-way classification
+    4. Regular clusters (≥200) → Use k-NN vote with cluster assignments as pseudo-labels
+    
+    NOTE: No longer uses training ground truth labels (template-based removed)
+    Uses cluster IDs from training as pseudo-labels for k-NN voting
     
     Returns:
     - predictions (numpy array: 0/1/2)
     - confidence scores (numpy array)
     - prediction_method (list of strings)
     """
-    print("\n🎯 Performing hybrid prediction (3-way classification)...")
+    print("\n🎯 Performing hybrid prediction (3-way classification - UNSUPERVISED)...")
     
     n_test = len(test_cluster_labels)
     predictions = np.zeros(n_test, dtype=np.int32)  # Will store 0, 1, or 2
@@ -561,7 +642,7 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
             training_embeddings = normalize(training_embeddings, norm='l2')
             test_embeddings = normalize(test_embeddings, norm='l2')
     
-    # Build k-NN model for mixed clusters (if needed)
+    # Build k-NN model for regular clusters (if needed)
     knn_model = None
     if use_knn:
         # For HUGE datasets, subsample training data for k-NN
@@ -576,14 +657,15 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
                 replace=False
             )
             knn_train_embeddings = training_embeddings[subsample_indices]
-            knn_train_labels = training_labels[subsample_indices]
+            knn_train_cluster_labels = training_cluster_labels[subsample_indices]
             
             print(f"      Subsampled embeddings shape: {knn_train_embeddings.shape}")
         else:
             knn_train_embeddings = training_embeddings
-            knn_train_labels = training_labels
+            knn_train_cluster_labels = training_cluster_labels
         
         print(f"   Building k-NN model (k={KNN_NEIGHBORS}, samples={len(knn_train_embeddings):,})...")
+        print(f"   NOTE: Using cluster IDs as pseudo-labels (unsupervised approach)")
         knn_model = NearestNeighbors(
             n_neighbors=KNN_NEIGHBORS,
             metric='cosine' if USE_COSINE_DISTANCE else 'euclidean',
@@ -592,8 +674,8 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
         )
         knn_model.fit(knn_train_embeddings)
         
-        # Store labels for vote counting
-        knn_model.train_labels = knn_train_labels
+        # Store cluster labels for vote counting
+        knn_model.train_cluster_labels = knn_train_cluster_labels
     
     # Group samples by cluster for efficient processing
     unique_clusters = np.unique(test_cluster_labels)
@@ -611,7 +693,7 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
             methods.extend(["unknown"] * len(indices))
             continue
         
-        # Decision based on cluster type (3-way classification)
+        # Decision based on cluster type (UNSUPERVISED)
         cluster_type = cluster_info['cluster_type']
         
         if cluster_type == "noise":
@@ -632,58 +714,52 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
             confidence[indices] = 0.65
             methods.extend(["small"] * len(indices))
         
-        elif cluster_type == "pure":
-            # High purity → Use cluster's dominant label (0, 1, or 2)
-            dominant = cluster_info['dominant_label']
-            purity = cluster_info['purity']
-            predictions[indices] = dominant
-            confidence[indices] = purity
-            methods.extend(["pure"] * len(indices))
-        
-        elif cluster_type == "medium_purity":
-            # Borderline mixed cluster → NON-NORMAL
-            predictions[indices] = 1
-            confidence[indices] = cluster_info['purity']
-            methods.extend(["medium_purity"] * len(indices))
-        
-        else:  # low_purity
-            # Use k-NN vote for 3-way classification
+        else:  # regular clusters
+            # Use k-NN vote with cluster IDs as pseudo-labels
             if not use_knn or knn_model is None:
-                # Fallback: predict NON-NORMAL for ambiguous cases
-                predictions[indices] = 1
-                confidence[indices] = 0.5
-                methods.extend(["fallback"] * len(indices))
+                # Fallback: predict NORMAL for regular clusters
+                predictions[indices] = 0
+                confidence[indices] = 0.6
+                methods.extend(["no_knn_fallback"] * len(indices))
                 continue
             
             # Get k-NN for each test sample in this cluster
             cluster_test_embeddings = test_embeddings[indices]
             distances, neighbor_indices = knn_model.kneighbors(cluster_test_embeddings)
             
-            # Vote for each test sample (3-way)
-            # Use the labels from k-NN model (might be subsampled)
-            knn_labels = knn_model.train_labels if hasattr(knn_model, 'train_labels') else training_labels
+            # Get cluster labels from k-NN model
+            knn_cluster_labels = knn_model.train_cluster_labels if hasattr(knn_model, 'train_cluster_labels') else training_cluster_labels
             
             for i, sample_idx in enumerate(indices):
-                neighbor_labels = knn_labels[neighbor_indices[i]]
+                neighbor_cluster_ids = knn_cluster_labels[neighbor_indices[i]]
                 
-                # Count votes for each class (0=Normal, 1=NonNormal, 2=Anomaly)
-                votes = np.bincount(neighbor_labels, minlength=3)
-                vote_normal = votes[0]
-                vote_nonnormal = votes[1]
-                vote_anomaly = votes[2]
+                # Convert neighbor cluster IDs to predictions:
+                # -1 (noise) → 2 (ANOMALY)
+                # Small clusters → 1 (NON-NORMAL)
+                # Regular clusters → 0 (NORMAL)
+                neighbor_preds = []
+                for nc in neighbor_cluster_ids:
+                    if nc == -1:
+                        neighbor_preds.append(2)  # Noise → ANOMALY
+                    elif nc in cluster_dict:
+                        nc_type = cluster_dict[nc]['cluster_type']
+                        if nc_type in ['noise', 'very_small']:
+                            neighbor_preds.append(2)  # ANOMALY
+                        elif nc_type == 'small':
+                            neighbor_preds.append(1)  # NON-NORMAL
+                        else:
+                            neighbor_preds.append(0)  # NORMAL
+                    else:
+                        neighbor_preds.append(0)  # Unknown → NORMAL
                 
-                # 3-way classification logic
-                if vote_normal >= 8:  # 8-10 normal → NORMAL
-                    predictions[sample_idx] = 0
-                    confidence[sample_idx] = vote_normal / KNN_NEIGHBORS
-                elif vote_anomaly >= 8:  # 8-10 anomaly → ANOMALY
-                    predictions[sample_idx] = 2
-                    confidence[sample_idx] = vote_anomaly / KNN_NEIGHBORS
-                else:  # Borderline/ambiguous → NON-NORMAL
-                    predictions[sample_idx] = 1
-                    confidence[sample_idx] = KNN_MEDIUM_CONFIDENCE
+                # Majority vote
+                vote_counts = np.bincount(neighbor_preds, minlength=3)
+                pred_label = np.argmax(vote_counts)
+                vote_confidence = vote_counts[pred_label] / KNN_NEIGHBORS
                 
-                methods.append("knn")
+                predictions[sample_idx] = pred_label
+                confidence[sample_idx] = vote_confidence
+                methods.append(f"knn_vote_{pred_label}")
     
     return predictions, confidence, methods
 
@@ -974,7 +1050,7 @@ def analyze_prediction_distribution(y_true, y_pred, y_confidence=None, predictio
         dict with distribution statistics
     """
     print("\n" + "="*70)
-    print("STEP 11: DETAILED PREDICTION DISTRIBUTION ANALYSIS")
+    print("STEP 8: DETAILED PREDICTION DISTRIBUTION ANALYSIS")
     print("="*70)
     
     class_names = ['NORMAL', 'NON-NORMAL', 'ANOMALY']
@@ -1570,38 +1646,16 @@ def main():
     # ========================================================================
     if not goto_step_8:
         # ====================================================================
-        # STEP 1: Load training data with 3-way labels (for cluster analysis)
+        # STEP 1: Load training cluster results (UNSUPERVISED)
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 1: LOAD TRAINING DATA (3-way for cluster characterization)")
+        print("STEP 1: LOAD TRAINING CLUSTER RESULTS (UNSUPERVISED)")
         print("="*70)
-        
-        training_gt_labels = load_metadata_labels_3way(
-            METADATA_TSV_PATH,
-            NORMAL_TEMPLATE_PATH,
-            NONNORMAL_TEMPLATE_PATH
-        )
-        
-        # ====================================================================
-        # STEP 2: Load training cluster results
-        # ====================================================================
-        print("\n" + "="*70)
-        print("STEP 2: LOAD TRAINING CLUSTER RESULTS")
-        print("="*70)
+        print("NOTE: No longer loading template-based labels - using pure clustering")
         
         print(f"\nLoading cluster labels: {TRAINING_LABELS_PATH}")
         training_cluster_labels = np.load(TRAINING_LABELS_PATH)
         print(f"   ✓ Loaded {len(training_cluster_labels):,} cluster assignments")
-        
-        # Verify length match
-        if len(training_cluster_labels) != len(training_gt_labels):
-            print(f"   ⚠️ Length mismatch!")
-            print(f"   Cluster labels: {len(training_cluster_labels):,}")
-            print(f"   Ground truth:   {len(training_gt_labels):,}")
-            min_len = min(len(training_cluster_labels), len(training_gt_labels))
-            print(f"   → Truncating to {min_len:,} samples")
-            training_cluster_labels = training_cluster_labels[:min_len]
-            training_gt_labels = training_gt_labels[:min_len]
         
         n_clusters = len(set(training_cluster_labels) - {-1})
         n_noise = np.sum(training_cluster_labels == -1)
@@ -1609,25 +1663,10 @@ def main():
         print(f"Noise points: {n_noise:,} ({n_noise/len(training_cluster_labels)*100:.2f}%)")
         
         # ====================================================================
-        # STEP 3: Analyze cluster characteristics
+        # STEP 2: Load training embeddings (for silhouette + k-NN)
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 3: ANALYZE CLUSTER CHARACTERISTICS")
-        print("="*70)
-        
-        cluster_df, cluster_dict = analyze_cluster_characteristics(
-            training_cluster_labels, training_gt_labels
-        )
-        
-        # Save cluster analysis
-        cluster_df.to_csv(OUTPUT_CLUSTER_ANALYSIS, index=False)
-        print(f"\n✓ Cluster analysis saved to: {OUTPUT_CLUSTER_ANALYSIS}")
-        
-        # ====================================================================
-        # STEP 4: Load training embeddings (for k-NN)
-        # ====================================================================
-        print("\n" + "="*70)
-        print("STEP 4: LOAD TRAINING EMBEDDINGS")
+        print("STEP 2: LOAD TRAINING EMBEDDINGS (for silhouette + k-NN)")
         print("="*70)
         
         print(f"\nLoading training embeddings: {TRAINING_EMBEDDINGS_PATH}")
@@ -1640,24 +1679,40 @@ def main():
             training_embeddings = training_embeddings[:len(training_cluster_labels)]
         
         # ====================================================================
-        # STEP 5: Load testing data (2-class ground truth from file names)
+        # STEP 3: Analyze cluster characteristics (UNSUPERVISED + Silhouette)
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 5: LOAD TESTING DATA (2-class ground truth)")
+        print("STEP 3: ANALYZE CLUSTER CHARACTERISTICS (+ Silhouette Score)")
         print("="*70)
         
-        # Load multiple testing sets - ground truth based on file name
+        cluster_df, cluster_dict = analyze_cluster_characteristics(
+            training_cluster_labels,
+            embeddings=training_embeddings,
+            compute_silhouette=True,
+            silhouette_sample_size=100000  # Sample 100K for speed
+        )
+        
+        # Save cluster analysis
+        cluster_df.to_csv(OUTPUT_CLUSTER_ANALYSIS, index=False)
+        print(f"\n✓ Cluster analysis saved to: {OUTPUT_CLUSTER_ANALYSIS}")
+        
+        # ====================================================================
+        # STEP 4: Load testing data (2-class ground truth from file names)
+        # ====================================================================
+        print("\n" + "="*70)
+        print("STEP 4: LOAD TESTING DATA (2-class ground truth)")
+        print("="*70)
+        
+        # Load multiple testing sets - ground truth based on file name (NOT templates!)
         test_embeddings, test_gt_labels, test_set_info = load_multiple_testing_sets(
-            TESTING_SETS,
-            NORMAL_TEMPLATE_PATH,
-            NONNORMAL_TEMPLATE_PATH
+            TESTING_SETS
         )
         
         # ====================================================================
-        # STEP 6: Assign test samples to clusters
+        # STEP 5: Assign test samples to clusters
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 6: ASSIGN TEST SAMPLES TO CLUSTERS")
+        print("STEP 5: ASSIGN TEST SAMPLES TO CLUSTERS (k-NN)")
         print("="*70)
         
         if ALGORITHM == "kmeans":
@@ -1703,15 +1758,15 @@ def main():
         print(f"   ✓ Saved: {CHECKPOINT_STEP6.name}")
         
         # ====================================================================
-        # STEP 7: Hybrid prediction (3-class output)
+        # STEP 6: Hybrid prediction (3-class output, UNSUPERVISED)
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 7: HYBRID PREDICTION (3-class output)")
+        print("STEP 6: HYBRID PREDICTION (3-class, UNSUPERVISED)")
         print("="*70)
         
         predictions, confidence, methods = hybrid_predict(
             test_cluster_labels, cluster_dict,
-            training_embeddings, training_gt_labels,
+            training_embeddings, training_cluster_labels,
             test_embeddings, use_knn=True
         )
         
@@ -1719,8 +1774,8 @@ def main():
         np.save(OUTPUT_PREDICTIONS, predictions)
         print(f"\n✓ Predictions saved to: {OUTPUT_PREDICTIONS}")
         
-        # SAVE CHECKPOINT AFTER STEP 7 (prediction complete)
-        print(f"\n💾 Saving STEP 7 checkpoint...")
+        # SAVE CHECKPOINT AFTER STEP 6 (prediction complete)
+        print(f"\n💾 Saving STEP 6 checkpoint...")
         np.save(CHECKPOINT_STEP7_PRED, predictions)
         np.save(CHECKPOINT_STEP7_CONF, confidence)
         np.save(CHECKPOINT_STEP7_METHODS, methods)
@@ -1741,10 +1796,10 @@ def main():
         print(f"\n✅ All checkpoints saved! You can resume from STEP 8 if needed.")
     
     # ========================================================================
-    # STEP 8: Calculate metrics (2-class ground truth vs 3-class predictions)
+    # STEP 7: Calculate metrics (2-class ground truth vs 3-class predictions)
     # ========================================================================
     print("\n" + "="*70)
-    print("STEP 8: CALCULATE METRICS (2x3 confusion matrix)")
+    print("STEP 7: CALCULATE METRICS (2x3 confusion matrix)")
     print("="*70)
     
     metrics = calculate_metrics(test_gt_labels, predictions, confidence, methods)
@@ -1967,7 +2022,7 @@ def main():
     visualize_results(cluster_df, test_gt_labels, predictions, metrics)
     
     # ========================================================================
-    # STEP 11: Detailed Prediction Distribution Analysis
+    # STEP 10: Detailed Prediction Distribution Analysis
     # ========================================================================
     distribution_stats = analyze_prediction_distribution(
         test_gt_labels, 
