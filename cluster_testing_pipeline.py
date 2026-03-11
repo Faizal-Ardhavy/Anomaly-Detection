@@ -957,6 +957,378 @@ def visualize_results(cluster_df, y_true, y_pred, metrics):
     plt.close('all')
 
 
+def analyze_prediction_distribution(y_true, y_pred, y_confidence=None, prediction_methods=None, test_set_names=None):
+    """
+    Detailed analysis of prediction distribution per ground truth class
+    
+    Shows where mispredictions go (e.g., NORMAL → NON-NORMAL vs NORMAL → ANOMALY)
+    
+    Args:
+        y_true: Ground truth labels (0=NORMAL, 1=NON-NORMAL)
+        y_pred: Predicted labels (0=NORMAL, 1=NON-NORMAL, 2=ANOMALY)
+        y_confidence: Confidence scores (optional)
+        prediction_methods: Prediction methods used (optional)
+        test_set_names: Test set names per sample (optional)
+    
+    Returns:
+        dict with distribution statistics
+    """
+    print("\n" + "="*70)
+    print("STEP 11: DETAILED PREDICTION DISTRIBUTION ANALYSIS")
+    print("="*70)
+    
+    class_names = ['NORMAL', 'NON-NORMAL', 'ANOMALY']
+    unique_true = sorted(set(y_true))
+    unique_pred = sorted(set(y_pred))
+    
+    distribution_stats = {}
+    
+    # ========================================================================
+    # 1. Overall Distribution per Ground Truth Class
+    # ========================================================================
+    print("\n📊 Prediction Distribution by Ground Truth Class:")
+    print("="*70)
+    
+    for true_label in unique_true:
+        mask = y_true == true_label
+        n_total = np.sum(mask)
+        true_name = class_names[true_label]
+        
+        print(f"\n{true_name} Ground Truth ({n_total:,} samples):")
+        print("-" * 70)
+        
+        distribution_stats[true_label] = {
+            'name': true_name,
+            'n_total': n_total,
+            'predictions': {}
+        }
+        
+        # Count predictions for this ground truth class
+        for pred_label in unique_pred:
+            pred_mask = (y_true == true_label) & (y_pred == pred_label)
+            n_pred = np.sum(pred_mask)
+            pct = (n_pred / n_total) * 100
+            pred_name = class_names[pred_label]
+            
+            # Mark correct/wrong
+            is_correct = (true_label == pred_label)
+            marker = "✓ CORRECT" if is_correct else "✗ ERROR"
+            
+            print(f"  → Predicted as {pred_name:12s}: {n_pred:8,} ({pct:6.2f}%) {marker}")
+            
+            distribution_stats[true_label]['predictions'][pred_label] = {
+                'name': pred_name,
+                'count': n_pred,
+                'percentage': pct,
+                'is_correct': is_correct
+            }
+        
+        # Calculate error breakdown
+        correct_mask = (y_true == true_label) & (y_pred == true_label)
+        n_correct = np.sum(correct_mask)
+        n_errors = n_total - n_correct
+        error_pct = (n_errors / n_total) * 100
+        
+        print(f"\n  Summary:")
+        print(f"    Correct: {n_correct:,} ({100 - error_pct:.2f}%)")
+        print(f"    Errors:  {n_errors:,} ({error_pct:.2f}%)")
+    
+    # ========================================================================
+    # 2. Error Analysis: Where do mispredictions go?
+    # ========================================================================
+    print("\n" + "="*70)
+    print("🔍 Error Breakdown (Mispredictions):")
+    print("="*70)
+    
+    for true_label in unique_true:
+        true_name = class_names[true_label]
+        mask = y_true == true_label
+        error_mask = (y_true == true_label) & (y_pred != true_label)
+        n_errors = np.sum(error_mask)
+        n_total = np.sum(mask)
+        
+        if n_errors == 0:
+            print(f"\n{true_name}: No errors! 100% accuracy")
+            continue
+        
+        print(f"\n{true_name} Errors ({n_errors:,} / {n_total:,} = {n_errors/n_total*100:.2f}%):")
+        print("-" * 70)
+        
+        # Breakdown by prediction
+        for pred_label in unique_pred:
+            if pred_label == true_label:
+                continue  # Skip correct predictions
+            
+            pred_mask = (y_true == true_label) & (y_pred == pred_label)
+            n_pred = np.sum(pred_mask)
+            
+            if n_pred == 0:
+                continue
+            
+            pct_of_errors = (n_pred / n_errors) * 100
+            pct_of_total = (n_pred / n_total) * 100
+            pred_name = class_names[pred_label]
+            
+            print(f"  → Misclassified as {pred_name:12s}: {n_pred:8,}")
+            print(f"     ({pct_of_errors:5.1f}% of errors, {pct_of_total:5.2f}% of total {true_name})")
+            
+            # Show top methods causing this error (if available)
+            if prediction_methods is not None:
+                method_counts = Counter(prediction_methods[pred_mask])
+                top_methods = method_counts.most_common(3)
+                if top_methods:
+                    print(f"     Top methods: ", end="")
+                    for method, count in top_methods:
+                        print(f"{method}={count:,} ", end="")
+                    print()
+    
+    # ========================================================================
+    # 3. Prediction Method Analysis (if available)
+    # ========================================================================
+    if prediction_methods is not None:
+        print("\n" + "="*70)
+        print("🔧 Error Analysis by Prediction Method:")
+        print("="*70)
+        
+        unique_methods = sorted(set(prediction_methods))
+        
+        for method in unique_methods:
+            method_mask = np.array(prediction_methods) == method
+            n_method = np.sum(method_mask)
+            
+            if n_method == 0:
+                continue
+            
+            print(f"\n{method.upper()} Method ({n_method:,} samples):")
+            print("-" * 70)
+            
+            # Error rate per ground truth class
+            for true_label in unique_true:
+                true_name = class_names[true_label]
+                mask = method_mask & (y_true == true_label)
+                n_total = np.sum(mask)
+                
+                if n_total == 0:
+                    continue
+                
+                n_correct = np.sum(mask & (y_pred == true_label))
+                n_errors = n_total - n_correct
+                error_rate = (n_errors / n_total) * 100 if n_total > 0 else 0
+                
+                print(f"  {true_name:12s}: {n_total:7,} samples, "
+                      f"{n_correct:7,} correct, {n_errors:7,} errors ({error_rate:5.2f}%)")
+                
+                # Show error distribution for this method + ground truth
+                if n_errors > 0:
+                    for pred_label in unique_pred:
+                        if pred_label == true_label:
+                            continue
+                        error_mask = mask & (y_pred == pred_label)
+                        n_err = np.sum(error_mask)
+                        if n_err > 0:
+                            pred_name = class_names[pred_label]
+                            print(f"    → {n_err:7,} misclassified as {pred_name}")
+    
+    # ========================================================================
+    # 4. Per-Test-Set Analysis (if available)
+    # ========================================================================
+    if test_set_names is not None:
+        print("\n" + "="*70)
+        print("📂 Error Analysis by Test Set:")
+        print("="*70)
+        
+        unique_sets = sorted(set(test_set_names))
+        
+        for set_name in unique_sets:
+            set_mask = np.array(test_set_names) == set_name
+            n_set = np.sum(set_mask)
+            
+            print(f"\n{set_name.upper()} Test Set ({n_set:,} samples):")
+            print("-" * 70)
+            
+            # Ground truth distribution (should be uniform per set)
+            for true_label in unique_true:
+                mask = set_mask & (y_true == true_label)
+                n_total = np.sum(mask)
+                
+                if n_total == 0:
+                    continue
+                
+                true_name = class_names[true_label]
+                print(f"\n  {true_name} ({n_total:,} samples):")
+                
+                # Prediction distribution
+                for pred_label in unique_pred:
+                    pred_mask = mask & (y_pred == pred_label)
+                    n_pred = np.sum(pred_mask)
+                    pct = (n_pred / n_total) * 100 if n_total > 0 else 0
+                    pred_name = class_names[pred_label]
+                    
+                    is_correct = (pred_label == true_label)
+                    marker = "✓" if is_correct else "✗"
+                    
+                    print(f"    {marker} → {pred_name:12s}: {n_pred:7,} ({pct:6.2f}%)")
+    
+    # ========================================================================
+    # 5. Save Distribution Statistics to CSV
+    # ========================================================================
+    print("\n" + "="*70)
+    print("💾 Saving distribution statistics...")
+    
+    # Create detailed distribution table
+    rows = []
+    for true_label in unique_true:
+        true_name = class_names[true_label]
+        mask = y_true == true_label
+        n_total = np.sum(mask)
+        
+        for pred_label in unique_pred:
+            pred_name = class_names[pred_label]
+            pred_mask = (y_true == true_label) & (y_pred == pred_label)
+            n_pred = np.sum(pred_mask)
+            pct = (n_pred / n_total) * 100 if n_total > 0 else 0
+            
+            rows.append({
+                'ground_truth': true_name,
+                'ground_truth_label': true_label,
+                'prediction': pred_name,
+                'prediction_label': pred_label,
+                'count': n_pred,
+                'percentage': pct,
+                'total_in_class': n_total,
+                'is_correct': (true_label == pred_label)
+            })
+    
+    df_dist = pd.DataFrame(rows)
+    output_dist = OUTPUT_DIR / "prediction_distribution.csv"
+    df_dist.to_csv(output_dist, index=False)
+    print(f"✓ Distribution table saved: {output_dist}")
+    
+    # ========================================================================
+    # 6. Create Distribution Visualization
+    # ========================================================================
+    print("\n📊 Creating distribution visualizations...")
+    
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # Left plot: Stacked bar chart for prediction distribution
+    ax1 = axes[0]
+    
+    # Prepare data for stacked bar
+    true_labels_plot = []
+    pred_distributions = {pred: [] for pred in unique_pred}
+    
+    for true_label in unique_true:
+        true_name = class_names[true_label]
+        true_labels_plot.append(true_name)
+        
+        mask = y_true == true_label
+        n_total = np.sum(mask)
+        
+        for pred_label in unique_pred:
+            pred_mask = (y_true == true_label) & (y_pred == pred_label)
+            n_pred = np.sum(pred_mask)
+            pct = (n_pred / n_total) * 100 if n_total > 0 else 0
+            pred_distributions[pred_label].append(pct)
+    
+    # Create stacked bar chart
+    x_pos = np.arange(len(true_labels_plot))
+    colors = ['#2ecc71', '#e74c3c', '#f39c12']  # Green, Red, Orange
+    bottom = np.zeros(len(true_labels_plot))
+    
+    for pred_label in unique_pred:
+        pred_name = class_names[pred_label]
+        values = pred_distributions[pred_label]
+        ax1.bar(x_pos, values, bottom=bottom, label=f'Pred: {pred_name}', 
+                color=colors[pred_label], alpha=0.8, edgecolor='black', linewidth=1)
+        
+        # Add percentage labels
+        for i, (v, b) in enumerate(zip(values, bottom)):
+            if v > 2:  # Only show label if bar is big enough
+                ax1.text(i, b + v/2, f'{v:.1f}%', ha='center', va='center', 
+                        fontweight='bold', fontsize=10)
+        
+        bottom += values
+    
+    ax1.set_ylabel('Percentage (%)', fontsize=12)
+    ax1.set_xlabel('Ground Truth Class', fontsize=12)
+    ax1.set_title('Prediction Distribution by Ground Truth Class', fontsize=14, fontweight='bold')
+    ax1.set_xticks(x_pos)
+    ax1.set_xticklabels(true_labels_plot, fontsize=11)
+    ax1.legend(title='Predictions', fontsize=10)
+    ax1.grid(axis='y', alpha=0.3)
+    ax1.set_ylim(0, 100)
+    
+    # Right plot: Error breakdown (absolute counts)
+    ax2 = axes[1]
+    
+    # Prepare error data
+    error_data = []
+    error_labels = []
+    error_colors_list = []
+    
+    for true_label in unique_true:
+        true_name = class_names[true_label]
+        mask = y_true == true_label
+        n_total = np.sum(mask)
+        
+        # Count correct
+        correct_mask = (y_true == true_label) & (y_pred == true_label)
+        n_correct = np.sum(correct_mask)
+        
+        error_data.append(n_correct)
+        error_labels.append(f'{true_name}\nCorrect')
+        error_colors_list.append('#2ecc71')  # Green for correct
+        
+        # Count errors by type
+        for pred_label in unique_pred:
+            if pred_label == true_label:
+                continue
+            
+            pred_mask = (y_true == true_label) & (y_pred == pred_label)
+            n_pred = np.sum(pred_mask)
+            
+            if n_pred > 0:
+                pred_name = class_names[pred_label]
+                error_data.append(n_pred)
+                error_labels.append(f'{true_name}→{pred_name}\nError')
+                error_colors_list.append('#e74c3c' if pred_label == 2 else '#f39c12')
+    
+    # Create bar chart
+    x_pos_err = np.arange(len(error_data))
+    bars = ax2.bar(x_pos_err, error_data, color=error_colors_list, alpha=0.8, 
+                   edgecolor='black', linewidth=1)
+    
+    # Add count labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        if height > 0:
+            ax2.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height):,}',
+                    ha='center', va='bottom', fontsize=9, fontweight='bold')
+    
+    ax2.set_ylabel('Count (samples)', fontsize=12)
+    ax2.set_xlabel('Prediction Type', fontsize=12)
+    ax2.set_title('Correct vs Mispredictions (Absolute Counts)', fontsize=14, fontweight='bold')
+    ax2.set_xticks(x_pos_err)
+    ax2.set_xticklabels(error_labels, fontsize=9, rotation=45, ha='right')
+    ax2.grid(axis='y', alpha=0.3)
+    ax2.set_yscale('log')  # Log scale for better visibility
+    
+    plt.tight_layout()
+    output_dist_plot = OUTPUT_DIR / "prediction_distribution.png"
+    plt.savefig(output_dist_plot, dpi=300, bbox_inches='tight')
+    print(f"✓ Distribution plot saved: {output_dist_plot}")
+    
+    plt.close('all')
+    
+    print("\n" + "="*70)
+    print("✓ Prediction distribution analysis complete!")
+    print("="*70)
+    
+    return distribution_stats
+
+
 def fast_cluster_assignment_faiss(training_embeddings, training_cluster_labels, 
                                    test_embeddings, use_cosine=True, 
                                    nlist=1024, nprobe=64, batch_size=50000):
@@ -1595,6 +1967,17 @@ def main():
     visualize_results(cluster_df, test_gt_labels, predictions, metrics)
     
     # ========================================================================
+    # STEP 11: Detailed Prediction Distribution Analysis
+    # ========================================================================
+    distribution_stats = analyze_prediction_distribution(
+        test_gt_labels, 
+        predictions, 
+        confidence, 
+        methods,
+        test_set_names
+    )
+    
+    # ========================================================================
     # FINAL SUMMARY
     # ========================================================================
     print("\n" + "="*70)
@@ -1602,12 +1985,13 @@ def main():
     print("="*70)
     print(f"\n✓ All results saved to: {OUTPUT_DIR}")
     print(f"\nKey files:")
-    print(f"  - Predictions:       {OUTPUT_PREDICTIONS.name}")
-    print(f"  - Cluster analysis:  {OUTPUT_CLUSTER_ANALYSIS.name}")
-    print(f"  - Metrics:           {OUTPUT_METRICS.name}")
-    print(f"  - Per-set metrics:   {OUTPUT_PER_SET_METRICS.name}")
-    print(f"  - Detailed results:  {OUTPUT_DETAILED_RESULTS.name}")
-    print(f"  - Visualizations:    analysis_overview.png, confusion_matrix.png")
+    print(f"  - Predictions:           {OUTPUT_PREDICTIONS.name}")
+    print(f"  - Cluster analysis:      {OUTPUT_CLUSTER_ANALYSIS.name}")
+    print(f"  - Metrics:               {OUTPUT_METRICS.name}")
+    print(f"  - Per-set metrics:       {OUTPUT_PER_SET_METRICS.name}")
+    print(f"  - Detailed results:      {OUTPUT_DETAILED_RESULTS.name}")
+    print(f"  - Prediction distribution: prediction_distribution.csv")
+    print(f"  - Visualizations:        analysis_overview.png, confusion_matrix.png, prediction_distribution.png")
     
     # Detect unique ground truth and prediction classes for summary
     unique_true = sorted(set(test_gt_labels))
