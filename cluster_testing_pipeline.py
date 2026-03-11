@@ -1689,7 +1689,7 @@ def main():
             training_cluster_labels,
             embeddings=training_embeddings,
             compute_silhouette=True,
-            silhouette_sample_size=100000  # Sample 100K for speed
+            silhouette_sample_size=1000000  # Sample 1M for speed
         )
         
         # Save cluster analysis
