@@ -92,10 +92,12 @@ TESTING_SETS = [
     {
         'name': 'normal',  # Ground truth: ALL = NORMAL (0)
         'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_bgl_normal_embeddings.npy"),
+        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
     },
     {
         'name': 'nonnormal',  # Ground truth: ALL = NON-NORMAL (1)
         'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_bgl_non_normal_embeddings.npy"),
+        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_non_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
     }
 ]
 
@@ -1421,26 +1423,35 @@ def main():
         current_idx = 0
         for test_set in TESTING_SETS:
             name = test_set['name']
-            metadata_path = test_set['metadata']
             
-            # Count samples from metadata file
-            if metadata_path.exists():
+            # Count samples from metadata file (if available) or embeddings file
+            if 'metadata' in test_set and test_set['metadata'].exists():
+                metadata_path = test_set['metadata']
                 # Quick count using pandas (memory efficient)
                 df_temp = pd.read_csv(metadata_path, sep='\t', usecols=['label'])
                 n_samples = len(df_temp)
                 del df_temp
-                
-                test_set_info.append({
-                    'name': name,
-                    'start_idx': current_idx,
-                    'end_idx': current_idx + n_samples,
-                    'n_samples': n_samples
-                })
-                current_idx += n_samples
-                print(f"      Rebuilt {name:12s}: [{test_set_info[-1]['start_idx']:7,} → "
-                      f"{test_set_info[-1]['end_idx']:7,}] = {n_samples:,} samples")
+                print(f"      Rebuilt {name:12s}: [{current_idx:7,} → "
+                      f"{current_idx + n_samples:7,}] = {n_samples:,} samples (from metadata)")
+            elif 'embeddings' in test_set and test_set['embeddings'].exists():
+                # Count from embeddings file
+                embeddings_path = test_set['embeddings']
+                emb = np.load(embeddings_path)
+                n_samples = len(emb)
+                del emb
+                print(f"      Rebuilt {name:12s}: [{current_idx:7,} → "
+                      f"{current_idx + n_samples:7,}] = {n_samples:,} samples (from embeddings)")
             else:
-                print(f"      ⚠️ Metadata not found: {metadata_path}")
+                print(f"      ⚠️ Cannot count samples for '{name}': no metadata or embeddings found")
+                continue
+            
+            test_set_info.append({
+                'name': name,
+                'start_idx': current_idx,
+                'end_idx': current_idx + n_samples,
+                'n_samples': n_samples
+            })
+            current_idx += n_samples
         
         # Verify rebuild
         total_covered = sum(s['n_samples'] for s in test_set_info)
