@@ -138,6 +138,10 @@ SUBSAMPLE_KNN_TRAINING = True       # Subsample training data for k-NN (for huge
 KNN_SUBSAMPLE_SIZE = 1_000_000      # Max training samples for k-NN (1M samples)
 NORMALIZE_INPLACE = True            # Use copy=False to save memory during normalization
 
+# GPU acceleration for Silhouette Score (optional - uses external rapids-pip kernel)
+USE_GPU_SILHOUETTE = True           # Try GPU via rapids-pip kernel, fallback to CPU
+GPU_KERNEL_NAME = "rapids-pip"      # Jupyter kernel name with cuML installed
+
 # Output paths
 OUTPUT_DIR = Path("testing_results") / f"{DATASET.lower()}_{ALGORITHM}_{EMBEDDING_TYPE}"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -158,6 +162,194 @@ CHECKPOINT_STEP7_PRED = CHECKPOINT_DIR / "step7_predictions.npy"
 CHECKPOINT_STEP7_CONF = CHECKPOINT_DIR / "step7_confidence.npy"
 CHECKPOINT_STEP7_METHODS = CHECKPOINT_DIR / "step7_methods.npy"
 CHECKPOINT_METADATA = CHECKPOINT_DIR / "checkpoint_metadata.pkl"
+
+# ============================================================================
+# GPU ACCELERATION UTILITIES
+# ============================================================================
+
+def get_kernel_python_path(kernel_name="rapids-pip"):
+    """
+    Get Python executable path from Jupyter kernel specification
+    Returns None if kernel not found or error occurs
+    """
+    import subprocess
+    import json
+    
+    try:
+        # Get kernel spec directory
+        result = subprocess.run(
+            ["jupyter", "kernelspec", "list", "--json"],
+            capture_output=True, text=True, timeout=10
+        )
+        
+        if result.returncode != 0:
+            return None
+        
+        specs = json.loads(result.stdout)
+        if kernel_name not in specs.get("kernelspecs", {}):
+            return None
+        
+        kernel_dir = Path(specs["kernelspecs"][kernel_name]["resource_dir"])
+        kernel_json = kernel_dir / "kernel.json"
+        
+        if not kernel_json.exists():
+            return None
+        
+        with open(kernel_json, 'r') as f:
+            kernel_config = json.load(f)
+        
+        # argv[0] is usually the Python executable
+        python_path = kernel_config.get("argv", [])[0] if kernel_config.get("argv") else None
+        
+        if python_path and Path(python_path).exists():
+            return python_path
+        
+        return None
+        
+    except Exception as e:
+        print(f"⚠ Could not detect {kernel_name} kernel: {e}")
+        return None
+
+
+def compute_silhouette_gpu(
+    embeddings, labels, 
+    kernel_name="rapids-pip",
+    sample_size=None
+):
+    """
+    Compute silhouette score using GPU via external rapids-pip Jupyter kernel
+    Falls back to CPU sklearn if GPU computation fails
+    
+    Args:
+        embeddings: np.ndarray of shape (n_samples, n_features)
+        labels: np.ndarray of cluster labels
+        kernel_name: Name of Jupyter kernel with cuML installed
+        sample_size: Optional, subsample for large datasets
+        
+    Returns:
+        overall_score: float, overall silhouette score
+        sample_scores: np.ndarray, per-sample silhouette scores
+    """
+    import subprocess
+    import tempfile
+    import json
+    
+    # Try GPU computation
+    try:
+        print(f"🚀 Attempting GPU silhouette computation via {kernel_name} kernel...")
+        
+        # Get Python path from kernel
+        python_path = get_kernel_python_path(kernel_name)
+        if not python_path:
+            raise RuntimeError(f"Kernel {kernel_name} not found or invalid")
+        
+        print(f"   Found Python: {python_path}")
+        
+        # Create temporary directory for data exchange
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            
+            # Handle sampling if needed
+            if sample_size and len(embeddings) > sample_size:
+                print(f"   Sampling {sample_size:,} from {len(embeddings):,} samples...")
+                indices = np.random.choice(len(embeddings), sample_size, replace=False)
+                emb_subset = embeddings[indices]
+                lbl_subset = labels[indices]
+            else:
+                emb_subset = embeddings
+                lbl_subset = labels
+                indices = None
+            
+            # Save data to temporary files
+            emb_path = tmpdir / "embeddings.npy"
+            lbl_path = tmpdir / "labels.npy"
+            result_path = tmpdir / "result.npz"
+            
+            np.save(emb_path, emb_subset)
+            np.save(lbl_path, lbl_subset)
+            
+            # Create GPU computation script
+            script_path = tmpdir / "compute_gpu_silhouette.py"
+            with open(script_path, 'w') as f:
+                f.write(f'''import numpy as np
+import sys
+
+try:
+    from cuml.metrics import silhouette_score, silhouette_samples
+    print("✓ cuML imported successfully", file=sys.stderr)
+except ImportError as e:
+    print(f"✗ cuML import failed: {{e}}", file=sys.stderr)
+    sys.exit(1)
+
+# Load data
+emb = np.load("{emb_path}")
+lbl = np.load("{lbl_path}")
+print(f"✓ Loaded {{len(emb):,}} embeddings, {{len(np.unique(lbl))}} clusters", file=sys.stderr)
+
+# Compute silhouette on GPU
+print("Computing silhouette score on GPU...", file=sys.stderr)
+overall = float(silhouette_score(emb, lbl))
+samples = silhouette_samples(emb, lbl)
+print(f"✓ GPU computation complete: {{overall:.4f}}", file=sys.stderr)
+
+# Save results
+np.savez("{result_path}", overall=overall, samples=samples)
+print("✓ Results saved", file=sys.stderr)
+''')
+            
+            # Execute with rapids-pip Python
+            print(f"   Launching GPU computation...")
+            result = subprocess.run(
+                [python_path, str(script_path)],
+                capture_output=True, text=True, timeout=3600  # 1 hour timeout
+            )
+            
+            # Check for errors
+            if result.returncode != 0:
+                error_msg = result.stderr if result.stderr else result.stdout
+                raise RuntimeError(f"GPU script failed: {error_msg}")
+            
+            # Print GPU process output
+            if result.stderr:
+                for line in result.stderr.strip().split('\n'):
+                    print(f"   {line}")
+            
+            # Load results
+            if not result_path.exists():
+                raise RuntimeError("GPU computation produced no output file")
+            
+            data = np.load(result_path)
+            overall_score = float(data['overall'])
+            sample_scores_subset = data['samples']
+            
+            # Expand to full size if we sampled
+            if indices is not None:
+                sample_scores = np.zeros(len(embeddings))
+                sample_scores[indices] = sample_scores_subset
+            else:
+                sample_scores = sample_scores_subset
+            
+            print(f"✅ GPU silhouette successful: {overall_score:.4f}")
+            return overall_score, sample_scores
+            
+    except Exception as e:
+        print(f"⚠ GPU computation failed: {e}")
+        print(f"⚠ Falling back to CPU sklearn computation...")
+        
+        # Fallback to CPU
+        if sample_size and len(embeddings) > sample_size:
+            indices = np.random.choice(len(embeddings), sample_size, replace=False)
+            overall_score = silhouette_score(embeddings[indices], labels[indices])
+            sample_scores_subset = silhouette_samples(embeddings[indices], labels[indices])
+            sample_scores = np.zeros(len(embeddings))
+            sample_scores[indices] = sample_scores_subset
+        else:
+            overall_score = silhouette_score(embeddings, labels)
+            sample_scores = silhouette_samples(embeddings, labels)
+        
+        print(f"✓ CPU silhouette complete: {overall_score:.4f}")
+        return overall_score, sample_scores
+
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -491,37 +683,48 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         n_non_noise = non_noise_mask.sum()
         
         if n_non_noise > 0:
-            # Subsample for large datasets (silhouette is O(n²) for exact calculation)
-            if n_non_noise > silhouette_sample_size:
-                print(f"   Dataset large ({n_non_noise:,} samples), subsampling to {silhouette_sample_size:,}...")
-                non_noise_indices = np.where(non_noise_mask)[0]
-                subsample_idx = np.random.choice(non_noise_indices, silhouette_sample_size, replace=False)
-                
-                subsample_labels = cluster_labels[subsample_idx]
-                subsample_embeddings = embeddings[subsample_idx]
-                
-                # Compute silhouette on subsample
-                silhouette_per_sample_subsample = silhouette_samples(subsample_embeddings, subsample_labels)
-                overall_silhouette = silhouette_score(subsample_embeddings, subsample_labels)
-                
-                # Map back to full dataset (only for subsampled points)
-                silhouette_per_sample = np.full(len(cluster_labels), np.nan)
-                silhouette_per_sample[subsample_idx] = silhouette_per_sample_subsample
-                
-                print(f"   ✓ Overall Silhouette Score (sampled): {overall_silhouette:.4f}")
+            # Extract non-noise samples
+            non_noise_indices = np.where(non_noise_mask)[0]
+            non_noise_labels = cluster_labels[non_noise_mask]
+            non_noise_embeddings = embeddings[non_noise_mask]
+            
+            # Try GPU computation if enabled, with automatic CPU fallback
+            if USE_GPU_SILHOUETTE:
+                # GPU function handles sampling internally
+                sample_size = silhouette_sample_size if n_non_noise > silhouette_sample_size else None
+                overall_silhouette, silhouette_per_sample_non_noise = compute_silhouette_gpu(
+                    non_noise_embeddings, 
+                    non_noise_labels,
+                    kernel_name=GPU_KERNEL_NAME,
+                    sample_size=sample_size
+                )
             else:
-                # Small enough, compute exactly
-                non_noise_labels = cluster_labels[non_noise_mask]
-                non_noise_embeddings = embeddings[non_noise_mask]
+                # CPU-only computation (sklearn)
+                if n_non_noise > silhouette_sample_size:
+                    print(f"   Dataset large ({n_non_noise:,} samples), subsampling to {silhouette_sample_size:,}...")
+                    subsample_idx = np.random.choice(len(non_noise_labels), silhouette_sample_size, replace=False)
+                    
+                    silhouette_per_sample_subsample = silhouette_samples(
+                        non_noise_embeddings[subsample_idx], 
+                        non_noise_labels[subsample_idx]
+                    )
+                    overall_silhouette = silhouette_score(
+                        non_noise_embeddings[subsample_idx], 
+                        non_noise_labels[subsample_idx]
+                    )
+                    
+                    # Map back to non-noise dataset
+                    silhouette_per_sample_non_noise = np.zeros(len(non_noise_labels))
+                    silhouette_per_sample_non_noise[subsample_idx] = silhouette_per_sample_subsample
+                else:
+                    silhouette_per_sample_non_noise = silhouette_samples(non_noise_embeddings, non_noise_labels)
+                    overall_silhouette = silhouette_score(non_noise_embeddings, non_noise_labels)
                 
-                silhouette_per_sample_non_noise = silhouette_samples(non_noise_embeddings, non_noise_labels)
-                overall_silhouette = silhouette_score(non_noise_embeddings, non_noise_labels)
-                
-                # Map to full dataset
-                silhouette_per_sample = np.full(len(cluster_labels), np.nan)
-                silhouette_per_sample[non_noise_mask] = silhouette_per_sample_non_noise
-                
-                print(f"   ✓ Overall Silhouette Score: {overall_silhouette:.4f}")
+                print(f"   ✓ Silhouette Score: {overall_silhouette:.4f}")
+            
+            # Map to full dataset (including noise as NaN)
+            silhouette_per_sample = np.full(len(cluster_labels), np.nan)
+            silhouette_per_sample[non_noise_mask] = silhouette_per_sample_non_noise
         else:
             print(f"   ⚠️ All samples are noise, cannot compute silhouette")
     
