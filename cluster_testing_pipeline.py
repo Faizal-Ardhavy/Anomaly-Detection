@@ -1152,7 +1152,7 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
 def visualize_results(cluster_df, y_true, y_pred, metrics):
     """
     Create visualizations:
-    1. Cluster purity distribution
+    1. Silhouette score distribution (UNSUPERVISED cluster quality)
     2. Confusion matrix heatmap
     3. Cluster type distribution
     """
@@ -1160,17 +1160,29 @@ def visualize_results(cluster_df, y_true, y_pred, metrics):
     
     fig, axes = plt.subplots(2, 2, figsize=(15, 12))
     
-    # 1. Cluster Purity Distribution
+    # 1. Silhouette Score Distribution (UNSUPERVISED cluster quality)
     ax1 = axes[0, 0]
-    ax1.hist(cluster_df['purity'], bins=50, edgecolor='black', alpha=0.7)
-    ax1.axvline(PURITY_THRESHOLD_HIGH, color='red', linestyle='--', 
-                label=f'High={PURITY_THRESHOLD_HIGH}')
-    ax1.axvline(PURITY_THRESHOLD_MEDIUM, color='orange', linestyle='--', 
-                label=f'Medium={PURITY_THRESHOLD_MEDIUM}')
-    ax1.set_xlabel('Cluster Purity')
-    ax1.set_ylabel('Number of Clusters')
-    ax1.set_title('Cluster Purity Distribution')
-    ax1.legend()
+    if 'silhouette_score' in cluster_df.columns:
+        # Filter out NaN (noise clusters don't have silhouette)
+        valid_silhouette = cluster_df['silhouette_score'].dropna()
+        if len(valid_silhouette) > 0:
+            ax1.hist(valid_silhouette, bins=50, edgecolor='black', alpha=0.7, color='steelblue')
+            ax1.axvline(0, color='red', linestyle='--', label='Zero (boundary)')
+            ax1.axvline(valid_silhouette.mean(), color='green', linestyle='--', 
+                       label=f'Mean={valid_silhouette.mean():.3f}')
+            ax1.set_xlabel('Silhouette Score')
+            ax1.set_ylabel('Number of Clusters')
+            ax1.set_title('Cluster Quality: Silhouette Score Distribution')
+            ax1.legend()
+            ax1.grid(alpha=0.3)
+        else:
+            ax1.text(0.5, 0.5, 'No silhouette scores available', 
+                    ha='center', va='center', transform=ax1.transAxes)
+            ax1.set_title('Silhouette Score Distribution (N/A)')
+    else:
+        ax1.text(0.5, 0.5, 'Silhouette computation disabled', 
+                ha='center', va='center', transform=ax1.transAxes)
+        ax1.set_title('Silhouette Score Distribution (N/A)')
     ax1.grid(alpha=0.3)
     
     # 2. Confusion Matrix (dynamic size)
