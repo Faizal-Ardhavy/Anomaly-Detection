@@ -69,7 +69,7 @@ warnings.filterwarnings('ignore')
 # Dataset & Algorithm Selection
 DATASET = "BGL"  # "BGL" or "Thunderbird"
 ALGORITHM = "dbscan"  # "kmeans" or "dbscan"
-EMBEDDING_TYPE = "pca256"  # "base", "pca256", or "pca128"
+EMBEDDING_TYPE = "pca128"  # "base", "pca256", or "pca128"
 
 # Template paths for 3-way ground truth classification
 if DATASET == "BGL":
@@ -88,11 +88,11 @@ else:  # Thunderbird
 if ALGORITHM == "kmeans":
     TRAINED_MODEL_PATH = Path("model_kmeans_log.pkl")
     TRAINING_LABELS_PATH = Path("cluster_labels.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_bgl_pca256_embeddings.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca128/after_preprocessed_bgl_pca128_embeddings.npy")
 else:  # dbscan
-    TRAINING_LABELS_PATH = Path("dbscan/bgl_pca256_model/dbscan_labels.npy")
-    TRAINING_CONFIG_PATH = Path("dbscan/bgl_pca256_model/dbscan_config.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_bgl_pca256_embeddings.npy")
+    TRAINING_LABELS_PATH = Path("dbscan/bgl_pca128_model/dbscan_labels.npy")
+    TRAINING_CONFIG_PATH = Path("dbscan/bgl_pca128_model/dbscan_config.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca128/after_preprocessed_bgl_pca128_embeddings.npy")
 
 # Path to testing data - MULTIPLE SETS (Ground truth based on set name!)
 # Each testing set should have embeddings file and a name indicating its class
@@ -101,12 +101,12 @@ else:  # dbscan
 TESTING_SETS = [
     {
         'name': 'normal',  # Ground truth: ALL = NORMAL (0)
-        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256_testing/after_preprocessed_bgl_normal_pca256_embeddings.npy"),
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca128_testing/after_preprocessed_bgl_normal_pca128_embeddings.npy"),
         'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
     },
     {
         'name': 'nonnormal',  # Ground truth: ALL = NON-NORMAL (1)
-        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256_testing/after_preprocessed_bgl_non_normal_pca256_embeddings.npy"),
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca128_testing/after_preprocessed_bgl_non_normal_pca128_embeddings.npy"),
         'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_non_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
     }
 ]
