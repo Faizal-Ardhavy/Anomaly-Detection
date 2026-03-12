@@ -1323,9 +1323,10 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
 def visualize_results(cluster_df, y_true, y_pred, metrics):
     """
     Create visualizations:
-    1. Silhouette score distribution (UNSUPERVISED cluster quality)
-    2. Confusion matrix heatmap
-    3. Cluster type distribution
+    1. Silhouette score distribution (cluster quality metric)
+    2. Confusion matrix heatmap (prediction accuracy)
+    3. Cluster label distribution (metadata-based or size-based)
+    4. Cluster size distribution (with labeling threshold)
     """
     print("\n📈 Creating visualizations...")
     
@@ -1375,26 +1376,53 @@ def visualize_results(cluster_df, y_true, y_pred, metrics):
     ax2.set_ylabel('Ground Truth')
     ax2.set_title(f'{len(unique_true)}x{len(unique_pred)} Confusion Matrix')
     
-    # 3. Cluster Type Distribution
+    # 3. Cluster Label Distribution (Metadata-based)
     ax3 = axes[1, 0]
-    type_counts = cluster_df['cluster_type'].value_counts()
-    type_counts.plot(kind='bar', ax=ax3, color=['green', 'blue', 'orange', 'red'])
-    ax3.set_xlabel('Cluster Type')
-    ax3.set_ylabel('Number of Clusters')
-    ax3.set_title('Cluster Type Distribution')
+    if 'label_name' in cluster_df.columns:
+        # Metadata-based labeling
+        label_counts = cluster_df['label_name'].value_counts()
+        colors = {'NORMAL': 'green', 'NON-NORMAL': 'orange', 'ANOMALY': 'red'}
+        label_colors = [colors.get(label, 'gray') for label in label_counts.index]
+        label_counts.plot(kind='bar', ax=ax3, color=label_colors)
+        ax3.set_xlabel('Cluster Label (Metadata-based)')
+        ax3.set_ylabel('Number of Clusters')
+        ax3.set_title('Cluster Label Distribution (Semi-supervised)')
+    else:
+        # Legacy: cluster_type if no metadata labeling
+        if 'cluster_type' in cluster_df.columns:
+            type_counts = cluster_df['cluster_type'].value_counts()
+            type_counts.plot(kind='bar', ax=ax3, color=['green', 'blue', 'orange', 'red'])
+            ax3.set_xlabel('Cluster Type')
+            ax3.set_ylabel('Number of Clusters')
+            ax3.set_title('Cluster Type Distribution (Size-based)')
+        else:
+            ax3.text(0.5, 0.5, 'No cluster labeling available', 
+                    ha='center', va='center', transform=ax3.transAxes)
+            ax3.set_title('Cluster Distribution (N/A)')
     ax3.tick_params(axis='x', rotation=45)
     ax3.grid(axis='y', alpha=0.3)
     
     # 4. Cluster Size Distribution (log scale)
     ax4 = axes[1, 1]
     ax4.hist(cluster_df['n_samples'], bins=50, edgecolor='black', alpha=0.7)
-    ax4.axvline(VERY_SMALL_CLUSTER_THRESHOLD, color='orange', linestyle='--',
-                label=f'Very small={VERY_SMALL_CLUSTER_THRESHOLD}')
-    ax4.axvline(SMALL_CLUSTER_THRESHOLD, color='red', linestyle='--',
-                label=f'Small={SMALL_CLUSTER_THRESHOLD}')
+    
+    if USE_METADATA_LABELING:
+        # Show metadata labeling threshold
+        ax4.axvline(MIN_CLUSTER_SIZE_FOR_LABELING, color='red', linestyle='--',
+                    label=f'Min size for labeling={MIN_CLUSTER_SIZE_FOR_LABELING}')
+    else:
+        # Show legacy size-based thresholds
+        ax4.axvline(VERY_SMALL_CLUSTER_THRESHOLD, color='orange', linestyle='--',
+                    label=f'Very small={VERY_SMALL_CLUSTER_THRESHOLD}')
+        ax4.axvline(SMALL_CLUSTER_THRESHOLD, color='red', linestyle='--',
+                    label=f'Small={SMALL_CLUSTER_THRESHOLD}')
+    
     ax4.set_xlabel('Cluster Size (samples)')
     ax4.set_ylabel('Number of Clusters')
-    ax4.set_title('Cluster Size Distribution')
+    if USE_METADATA_LABELING:
+        ax4.set_title('Cluster Size Distribution (Metadata-based)')
+    else:
+        ax4.set_title('Cluster Size Distribution (Size-based)')
     ax4.set_yscale('log')
     ax4.legend()
     ax4.grid(alpha=0.3)
