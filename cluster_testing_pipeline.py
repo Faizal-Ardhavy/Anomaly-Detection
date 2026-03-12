@@ -120,14 +120,20 @@ TESTING_SETS = [
 # ]
 # TESTING_METADATA_TSV = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/testing_bgl_meta.tsv")
 
-# Hybrid prediction parameters (3-way classification)
-PURITY_THRESHOLD_HIGH = 0.95       # Pure cluster (trust dominant label)
-PURITY_THRESHOLD_MEDIUM = 0.70     # Medium purity → NON-NORMAL
+# Semi-supervised cluster labeling strategy
+USE_METADATA_LABELING = True        # Use training metadata to label clusters (RECOMMENDED)
+METADATA_SAMPLE_SIZE = 1000         # Samples per cluster for metadata check (or full if smaller)
+MAJORITY_THRESHOLD = 0.70           # ≥70% majority → assign that class label
 
+# Cluster labeling thresholds
+MIN_CLUSTER_SIZE_FOR_LABELING = 50  # < 50 samples → auto ANOMALY (too small/rare)
+
+# Legacy: Size-based classification (if USE_METADATA_LABELING = False)
 VERY_SMALL_CLUSTER_THRESHOLD = 50   # < 50 samples → ANOMALY
 SMALL_CLUSTER_THRESHOLD = 200       # 50-200 samples → NON-NORMAL
 
-KNN_NEIGHBORS = 10                  # For k-NN vote in low purity clusters
+# Legacy: k-NN parameters (not needed with metadata labeling)
+KNN_NEIGHBORS = 10                  # For k-NN vote in ambiguous cases
 KNN_HIGH_CONFIDENCE = 0.80          # 8/10 vote = high confidence
 KNN_MEDIUM_CONFIDENCE = 0.60        # 6/10 vote = medium confidence
 
@@ -643,18 +649,32 @@ def determine_cluster_type_3way(cluster_id, size, purity):
 
 def analyze_cluster_characteristics(cluster_labels, embeddings=None, 
                                     compute_silhouette=True, 
-                                    silhouette_sample_size=100000):
+                                    silhouette_sample_size=100000,
+                                    metadata_tsv_path=None,
+                                    normal_template_path=None,
+                                    nonnormal_template_path=None):
     """
-    Analyze each cluster: UNSUPERVISED clustering statistics
+    Analyze each cluster with SEMI-SUPERVISED metadata-based labeling
     
     Args:
         cluster_labels: Cluster assignments for each sample
         embeddings: Sample embeddings (needed for silhouette score)
         compute_silhouette: Whether to compute silhouette scores (default: True)
         silhouette_sample_size: Max samples for silhouette (default: 100K for speed)
+        metadata_tsv_path: Path to training metadata TSV (for metadata labeling)
+        normal_template_path: Path to normal event template
+        nonnormal_template_path: Path to non-normal event template
     
-    NOTE: No longer uses training labels (removed template-based approach)
-    Cluster types determined purely by size thresholds
+    Strategy:
+        IF USE_METADATA_LABELING = True (RECOMMENDED):
+            1. Load training metadata TSV
+            2. For each cluster: sample → check metadata → majority vote
+            3. Assign cluster_label: NORMAL (0), NON-NORMAL (1), or ANOMALY (2)
+        
+        ELSE (Legacy size-based):
+            1. Size < 50 → ANOMALY
+            2. Size 50-200 → NON-NORMAL  
+            3. Size ≥ 200 → Needs k-NN (unreliable)
     
     Silhouette Score:
     - Range: -1 to +1
@@ -663,13 +683,41 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     - -1: Sample possibly assigned to wrong cluster (poor)
     
     Returns:
-    - DataFrame with cluster statistics
+    - DataFrame with cluster statistics including cluster_label
     - Dict with cluster_id → cluster_info
     """
-    print("\n🔍 Analyzing cluster characteristics (UNSUPERVISED + Silhouette)...")
+    if USE_METADATA_LABELING:
+        print("\n🔍 Analyzing cluster characteristics (SEMI-SUPERVISED: Metadata-based labeling)...")
+    else:
+        print("\n🔍 Analyzing cluster characteristics (UNSUPERVISED: Size-based)...")
     
     unique_clusters = sorted(set(cluster_labels))
     cluster_info = []
+    
+    # Load metadata for label assignment (if metadata labeling enabled)
+    metadata_df = None
+    normal_events = None
+    nonnormal_events = None
+    
+    if USE_METADATA_LABELING and metadata_tsv_path and normal_template_path and nonnormal_template_path:
+        print(f"\n📖 Loading training metadata for cluster labeling...")
+        
+        # Load templates
+        print(f"   Loading templates...")
+        normal_events = load_template_events(normal_template_path)
+        nonnormal_events = load_template_events(nonnormal_template_path)
+        
+        # Load metadata TSV
+        print(f"   Loading metadata TSV: {metadata_tsv_path.name}")
+        if not metadata_tsv_path.exists():
+            print(f"   ⚠️ Metadata file not found, falling back to size-based classification")
+        else:
+            metadata_df = pd.read_csv(metadata_tsv_path, sep='\t')
+            if 'label' not in metadata_df.columns:
+                print(f"   ⚠️ 'label' column not found in metadata, falling back to size-based")
+                metadata_df = None
+            else:
+                print(f"   ✓ Loaded {len(metadata_df):,} metadata rows")
     
     # Calculate silhouette scores if embeddings provided
     silhouette_per_sample = None
@@ -732,16 +780,86 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     for cluster_id in tqdm(unique_clusters, desc="Analyzing clusters"):
         mask = cluster_labels == cluster_id
         n_samples = np.sum(mask)
+        cluster_indices = np.where(mask)[0]
         
-        # Classify cluster type PURELY BY SIZE (no labels needed)
-        if cluster_id == -1:
-            cluster_type = "noise"
-        elif n_samples < VERY_SMALL_CLUSTER_THRESHOLD:
-            cluster_type = "very_small"
-        elif n_samples < SMALL_CLUSTER_THRESHOLD:
-            cluster_type = "small"
+        # Initialize cluster info
+        cluster_label = None  # 0=NORMAL, 1=NON-NORMAL, 2=ANOMALY
+        label_name = None
+        pct_normal = 0.0
+        pct_nonnormal = 0.0
+        count_normal = 0
+        count_nonnormal = 0
+        labeling_reason = None
+        
+        # METADATA-BASED LABELING (if enabled and data available)
+        if metadata_df is not None and normal_events and nonnormal_events:
+            # RULE 1: Very small clusters → ANOMALY (too rare/suspicious)
+            if n_samples < MIN_CLUSTER_SIZE_FOR_LABELING:
+                cluster_label = 2
+                label_name = 'ANOMALY'
+                labeling_reason = 'too_small'
+            else:
+                # RULE 2: Sample & check metadata labels
+                if n_samples > METADATA_SAMPLE_SIZE:
+                    sample_indices = np.random.choice(cluster_indices, METADATA_SAMPLE_SIZE, replace=False)
+                else:
+                    sample_indices = cluster_indices
+                
+                # Count normal vs non-normal from metadata
+                for idx in sample_indices:
+                    if idx < len(metadata_df):  # Safety check
+                        event_label = metadata_df.iloc[idx]['label']
+                        
+                        if event_label in normal_events:
+                            count_normal += 1
+                        elif event_label in nonnormal_events:
+                            count_nonnormal += 1
+                
+                total = count_normal + count_nonnormal
+                
+                if total == 0:
+                    # No known events → ANOMALY
+                    cluster_label = 2
+                    label_name = 'ANOMALY'
+                    labeling_reason = 'no_known_events'
+                else:
+                    pct_normal = count_normal / total
+                    pct_nonnormal = count_nonnormal / total
+                    
+                    # RULE 3: Majority vote
+                    if pct_normal >= MAJORITY_THRESHOLD:
+                        cluster_label = 0  # NORMAL
+                        label_name = 'NORMAL'
+                        labeling_reason = 'normal_majority'
+                    elif pct_nonnormal >= MAJORITY_THRESHOLD:
+                        cluster_label = 1  # NON-NORMAL
+                        label_name = 'NON-NORMAL'
+                        labeling_reason = 'nonnormal_majority'
+                    else:
+                        # Mixed cluster (no clear majority) → ANOMALY
+                        cluster_label = 2
+                        label_name = 'ANOMALY'
+                        labeling_reason = 'mixed_ambiguous'
+        
+        # FALLBACK: SIZE-BASED CLASSIFICATION (legacy or when metadata unavailable)
         else:
-            cluster_type = "regular"  # No purity-based classification
+            if cluster_id == -1:
+                cluster_label = 2
+                label_name = 'ANOMALY'
+                labeling_reason = 'noise'
+            elif n_samples < VERY_SMALL_CLUSTER_THRESHOLD:
+                cluster_label = 2
+                label_name = 'ANOMALY'
+                labeling_reason = 'very_small_size'
+            elif n_samples < SMALL_CLUSTER_THRESHOLD:
+                cluster_label = 1
+                label_name = 'NON-NORMAL'
+                labeling_reason = 'small_size'
+            else:
+                # Regular size → needs k-NN (unreliable, will be handled in prediction)
+                cluster_label = None  # Will use k-NN in prediction
+                label_name = 'REGULAR'
+                labeling_reason = 'regular_size'
         
         # Calculate mean silhouette for this cluster (skip noise)
         cluster_silhouette = None
@@ -755,7 +873,13 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         cluster_info.append({
             'cluster_id': cluster_id,
             'n_samples': n_samples,
-            'cluster_type': cluster_type,
+            'cluster_label': cluster_label,
+            'label_name': label_name,
+            'pct_normal': pct_normal,
+            'pct_nonnormal': pct_nonnormal,
+            'count_normal': count_normal,
+            'count_nonnormal': count_nonnormal,
+            'labeling_reason': labeling_reason,
             'silhouette_score': cluster_silhouette
         })
     
@@ -763,17 +887,27 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     
     # Summary statistics
     print(f"\n{'='*70}")
-    print("CLUSTER CHARACTERISTICS SUMMARY (UNSUPERVISED)")
+    if metadata_df is not None:
+        print("CLUSTER CHARACTERISTICS SUMMARY (SEMI-SUPERVISED: Metadata-based)")
+    else:
+        print("CLUSTER CHARACTERISTICS SUMMARY (Size-based)")
     print(f"{'='*70}")
     
     print(f"\nTotal clusters: {len(df)}")
     
-    # Count by type
-    type_counts = df['cluster_type'].value_counts()
-    print(f"\nCluster Types:")
-    for ctype, count in type_counts.items():
-        samples = df[df['cluster_type'] == ctype]['n_samples'].sum()
-        print(f"  {ctype:10s}: {count:4d} clusters, {samples:,} samples")
+    # Count by label (if metadata labeling was used)
+    if 'label_name' in df.columns and metadata_df is not None:
+        print(f"\nCluster Labels (Metadata-based):")
+        label_counts = df['label_name'].value_counts()
+        for label, count in label_counts.items():
+            samples = df[df['label_name'] == label]['n_samples'].sum()
+            print(f"  {label:12s}: {count:4d} clusters, {samples:,} samples")
+        
+        # Show labeling reasons
+        print(f"\nLabeling Reasons:")
+        reason_counts = df['labeling_reason'].value_counts()
+        for reason, count in reason_counts.items():
+            print(f"  {reason:20s}: {count:4d} clusters")
     
     # Size statistics
     print(f"\nCluster Size Statistics:")
@@ -808,64 +942,101 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
 
 
 def hybrid_predict(test_cluster_labels, cluster_dict, 
-                   training_embeddings, training_cluster_labels, 
-                   test_embeddings, use_knn=True):
+                   training_embeddings=None, training_cluster_labels=None, 
+                   test_embeddings=None, use_knn=False):
     """
-    Hybrid prediction strategy (3-way classification) - UNSUPERVISED:
-    1. Noise points → ANOMALY (label=2)
-    2. Very small clusters (<50) → ANOMALY (label=2)
-    3. Small clusters (50-200) → NON-NORMAL (label=1)
-    4. Regular clusters (≥200) → Use k-NN vote with cluster assignments as pseudo-labels
+    Predict test samples based on their cluster assignment
     
-    NOTE: No longer uses training ground truth labels (template-based removed)
-    Uses cluster IDs from training as pseudo-labels for k-NN voting
+    Strategy:
+        IF USE_METADATA_LABELING = True (SEMI-SUPERVISED):
+            → Simply lookup cluster label from cluster_dict
+            → cluster_label: NORMAL (0), NON-NORMAL (1), ANOMALY (2)
+            → Fast & accurate!
+        
+        ELSE (Legacy size-based with k-NN fallback):
+            → Small clusters: direct assignment
+            → Regular clusters: k-NN vote (slow & unreliable)
+    
+    Args:
+        test_cluster_labels: Cluster assignments for test samples
+        cluster_dict: Dict with cluster characteristics
+        training_embeddings: Not needed for metadata-based (legacy only)
+        training_cluster_labels: Not needed for metadata-based (legacy only)
+        test_embeddings: Not needed for metadata-based (legacy only)
+        use_knn: Whether to use k-NN for unlabeled clusters (legacy only)
     
     Returns:
-    - predictions (numpy array: 0/1/2)
-    - confidence scores (numpy array)
-    - prediction_method (list of strings)
+        - predictions (numpy array: 0/1/2)
+        - confidence scores (numpy array)
+        - prediction_method (list of strings)
     """
-    print("\n🎯 Performing hybrid prediction (3-way classification - UNSUPERVISED)...")
+    if USE_METADATA_LABELING:
+        print("\n🎯 Predicting test samples (SEMI-SUPERVISED: Direct cluster lookup)...")
+    else:
+        print("\n🎯 Predicting test samples (UNSUPERVISED: Size-based + k-NN)...")
     
     n_test = len(test_cluster_labels)
     predictions = np.zeros(n_test, dtype=np.int32)  # Will store 0, 1, or 2
     confidence = np.zeros(n_test, dtype=np.float32)
     methods = []
     
-    # Pre-normalize embeddings if needed
-    if USE_COSINE_DISTANCE:
-        print("   Normalizing embeddings for cosine distance...")
-        if NORMALIZE_INPLACE:
-            # In-place normalization to save memory (copy=False)
-            # WARNING: modifies original arrays, but they are mmap views so it's safe
-            print("      Using in-place normalization (memory efficient)")
-            training_embeddings = normalize(training_embeddings, norm='l2', copy=False)
-            test_embeddings = normalize(test_embeddings, norm='l2', copy=False)
-        else:
-            training_embeddings = normalize(training_embeddings, norm='l2')
-            test_embeddings = normalize(test_embeddings, norm='l2')
+    # METADATA-BASED PREDICTION (Simple & Fast!)
+    if USE_METADATA_LABELING:
+        print(f"   Using metadata-labeled clusters...")
+        
+        for i, cluster_id in enumerate(tqdm(test_cluster_labels, desc="Predicting")):
+            if cluster_id in cluster_dict:
+                cluster_info = cluster_dict[cluster_id]
+                cluster_label = cluster_info.get('cluster_label')
+                label_reason = cluster_info.get('labeling_reason', 'unknown')
+                
+                if cluster_label is not None:
+                    predictions[i] = cluster_label
+                    
+                    # Confidence based on metadata purity
+                    if label_reason == 'normal_majority':
+                        confidence[i] = cluster_info.get('pct_normal', 0.7)
+                        methods.append('metadata_normal')
+                    elif label_reason == 'nonnormal_majority':
+                        confidence[i] = cluster_info.get('pct_nonnormal', 0.7)
+                        methods.append('metadata_nonnormal')
+                    elif label_reason == 'too_small':
+                        predictions[i] = 2  # ANOMALY
+                        confidence[i] = 0.75
+                        methods.append('too_small')
+                    elif label_reason == 'mixed_ambiguous':
+                        predictions[i] = 2  # ANOMALY
+                        confidence[i] = 0.50
+                        methods.append('mixed')
+                    else:
+                        confidence[i] = 0.60
+                        methods.append(label_reason)
+                else:
+                    # No label (shouldn't happen with metadata)
+                    predictions[i] = 2  # ANOMALY (safe default)
+                    confidence[i] = 0.30
+                    methods.append('unlabeled')
+            else:
+                # Unknown cluster (shouldn't happen but handle it)
+                predictions[i] = 2  # ANOMALY
+                confidence[i] = 0.20
+                methods.append('unknown_cluster')
+        
+        # Summary
+        print(f"\n   ✓ Predicted {n_test:,} test samples")
+        method_counts = Counter(methods)
+        print(f"\n   Prediction Methods Used:")
+        for method, count in method_counts.most_common():
+            print(f"      {method:20s}: {count:,} samples ({count/n_test*100:.1f}%)")
+        
+        return predictions, confidence, np.array(methods)
     
-    # Build k-NN model for regular clusters (if needed)
-    knn_model = None
-    if use_knn:
-        # For HUGE datasets, subsample training data for k-NN
-        if SUBSAMPLE_KNN_TRAINING and len(training_embeddings) > KNN_SUBSAMPLE_SIZE:
-            print(f"   ⚠️ Training set too large ({len(training_embeddings):,} samples)")
-            print(f"   Subsampling to {KNN_SUBSAMPLE_SIZE:,} samples for k-NN model...")
-            
-            # Random subsample
-            subsample_indices = np.random.choice(
-                len(training_embeddings), 
-                size=KNN_SUBSAMPLE_SIZE, 
-                replace=False
-            )
-            knn_train_embeddings = training_embeddings[subsample_indices]
-            knn_train_cluster_labels = training_cluster_labels[subsample_indices]
-            
-            print(f"      Subsampled embeddings shape: {knn_train_embeddings.shape}")
-        else:
-            knn_train_embeddings = training_embeddings
-            knn_train_cluster_labels = training_cluster_labels
+    # LEGACY: SIZE-BASED + k-NN PREDICTION (Complex & Slow)
+    else:
+        print(f"   ⚠️ Using legacy size-based prediction (metadata labeling disabled)")
+        print(f"   ⚠️ This approach is UNRELIABLE - consider enabling USE_METADATA_LABELING")
+        knn_train_embeddings = training_embeddings
+        knn_train_cluster_labels = training_cluster_labels
         
         print(f"   Building k-NN model (k={KNN_NEIGHBORS}, samples={len(knn_train_embeddings):,})...")
         print(f"   NOTE: Using cluster IDs as pseudo-labels (unsupervised approach)")
@@ -1904,7 +2075,10 @@ def main():
             training_cluster_labels,
             embeddings=training_embeddings,
             compute_silhouette=True,
-            silhouette_sample_size=100000  # Sample 100K for speed
+            silhouette_sample_size=100000,  # Sample 100K for speed
+            metadata_tsv_path=METADATA_TSV_PATH if USE_METADATA_LABELING else None,
+            normal_template_path=NORMAL_TEMPLATE_PATH if USE_METADATA_LABELING else None,
+            nonnormal_template_path=NONNORMAL_TEMPLATE_PATH if USE_METADATA_LABELING else None
         )
         
         # Save cluster analysis
@@ -1973,16 +2147,21 @@ def main():
         print(f"   ✓ Saved: {CHECKPOINT_STEP6.name}")
         
         # ====================================================================
-        # STEP 6: Hybrid prediction (3-class output, UNSUPERVISED)
+        # STEP 6: Hybrid prediction (3-class output)
         # ====================================================================
         print("\n" + "="*70)
-        print("STEP 6: HYBRID PREDICTION (3-class, UNSUPERVISED)")
+        if USE_METADATA_LABELING:
+            print("STEP 6: PREDICTION (SEMI-SUPERVISED: Metadata-based)")
+        else:
+            print("STEP 6: PREDICTION (UNSUPERVISED: Size-based)")
         print("="*70)
         
         predictions, confidence, methods = hybrid_predict(
             test_cluster_labels, cluster_dict,
-            training_embeddings, training_cluster_labels,
-            test_embeddings, use_knn=True
+            training_embeddings=training_embeddings if not USE_METADATA_LABELING else None,
+            training_cluster_labels=training_cluster_labels if not USE_METADATA_LABELING else None,
+            test_embeddings=test_embeddings if not USE_METADATA_LABELING else None,
+            use_knn=False if USE_METADATA_LABELING else True
         )
         
         # Save predictions
