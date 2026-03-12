@@ -128,9 +128,16 @@ MAJORITY_THRESHOLD = 0.70           # ≥70% majority → assign that class labe
 # Cluster labeling thresholds
 MIN_CLUSTER_SIZE_FOR_LABELING = 50  # < 50 samples → auto ANOMALY (too small/rare)
 
+# K-Means adaptive size rules (recommended for large datasets)
+# Example: 0.2% of 3.9M ≈ 7,800 samples
+KMEANS_ANOMALY_CLUSTER_RATIO = 0.002   # Cluster < 0.2% of training set → ANOMALY
+KMEANS_SMALL_CLUSTER_RATIO = 0.005     # Cluster < 0.5% of training set → NON-NORMAL (legacy mode)
+
 # Legacy: Size-based classification (if USE_METADATA_LABELING = False)
 VERY_SMALL_CLUSTER_THRESHOLD = 50   # < 50 samples → ANOMALY
 SMALL_CLUSTER_THRESHOLD = 200       # 50-200 samples → NON-NORMAL
+PURITY_THRESHOLD_HIGH = 0.95        # Legacy pure-cluster threshold
+PURITY_THRESHOLD_MEDIUM = 0.70      # Legacy medium-purity threshold
 
 # Legacy: k-NN parameters (not needed with metadata labeling)
 KNN_NEIGHBORS = 10                  # For k-NN vote in ambiguous cases
@@ -693,6 +700,24 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     
     unique_clusters = sorted(set(cluster_labels))
     cluster_info = []
+    total_training_samples = len(cluster_labels)
+
+    # Adaptive thresholds for K-Means (avoid fixed tiny thresholds on large datasets)
+    if ALGORITHM == "kmeans":
+        adaptive_anomaly_threshold = max(
+            MIN_CLUSTER_SIZE_FOR_LABELING,
+            int(total_training_samples * KMEANS_ANOMALY_CLUSTER_RATIO)
+        )
+        adaptive_small_threshold = max(
+            SMALL_CLUSTER_THRESHOLD,
+            int(total_training_samples * KMEANS_SMALL_CLUSTER_RATIO)
+        )
+        print(f"   K-Means adaptive thresholds:")
+        print(f"      ANOMALY if size < {adaptive_anomaly_threshold:,} ({KMEANS_ANOMALY_CLUSTER_RATIO*100:.2f}% of train)")
+        print(f"      NON-NORMAL if size < {adaptive_small_threshold:,} ({KMEANS_SMALL_CLUSTER_RATIO*100:.2f}% of train, legacy)")
+    else:
+        adaptive_anomaly_threshold = MIN_CLUSTER_SIZE_FOR_LABELING
+        adaptive_small_threshold = SMALL_CLUSTER_THRESHOLD
     
     # Load metadata for label assignment (if metadata labeling enabled)
     metadata_df = None
@@ -794,7 +819,7 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         # METADATA-BASED LABELING (if enabled and data available)
         if metadata_df is not None and normal_events and nonnormal_events:
             # RULE 1: Very small clusters → ANOMALY (too rare/suspicious)
-            if n_samples < MIN_CLUSTER_SIZE_FOR_LABELING:
+            if n_samples < adaptive_anomaly_threshold:
                 cluster_label = 2
                 label_name = 'ANOMALY'
                 labeling_reason = 'too_small'
@@ -847,11 +872,11 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
                 cluster_label = 2
                 label_name = 'ANOMALY'
                 labeling_reason = 'noise'
-            elif n_samples < VERY_SMALL_CLUSTER_THRESHOLD:
+            elif n_samples < adaptive_anomaly_threshold:
                 cluster_label = 2
                 label_name = 'ANOMALY'
                 labeling_reason = 'very_small_size'
-            elif n_samples < SMALL_CLUSTER_THRESHOLD:
+            elif n_samples < adaptive_small_threshold:
                 cluster_label = 1
                 label_name = 'NON-NORMAL'
                 labeling_reason = 'small_size'
