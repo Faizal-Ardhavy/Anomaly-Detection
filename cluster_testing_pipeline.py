@@ -2109,23 +2109,65 @@ def main():
         print("="*70)
         
         print(f"\nLoading training embeddings: {TRAINING_EMBEDDINGS_PATH}")
-        # Try memmap first for minimal RAM usage; fallback to allow_pickle if file contains pickled objects
+        # Try memmap first for minimal RAM usage; robust fallbacks for several formats
         try:
             training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, mmap_mode='r')
             print("   ✓ Loaded via memmap")
         except ValueError as e:
             msg = str(e).lower()
+            # If numpy complains about pickled content, attempt safe fallbacks
             if 'pickled' in msg or 'pickle' in msg:
-                print("   ⚠️ File contains pickled objects — loading with allow_pickle=True (may use large RAM)")
-                training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, allow_pickle=True)
-                # If loaded as object-dtype (array of objects), attempt to convert to numeric 2D array
-                if getattr(training_embeddings, 'dtype', None) == object:
+                print("   ⚠️ File may contain pickled/unknown format — attempting fallbacks:")
+                # 1) Try loading with allow_pickle=True (may OOM)
+                try:
+                    training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, allow_pickle=True)
+                    print("   ✓ Loaded with allow_pickle=True")
+                    if getattr(training_embeddings, 'dtype', None) == object:
+                        try:
+                            print("   🔁 Converting object array into numeric ndarray (may use significant RAM)...")
+                            training_embeddings = np.vstack(training_embeddings).astype(np.float32)
+                            print(f"   ✓ Converted to numeric ndarray with shape: {training_embeddings.shape}")
+                        except Exception as conv_e:
+                            print(f"   ❌ Failed to convert object array to numeric: {conv_e}")
+                            raise
+                except Exception as e2:
+                    # allow_pickle load failed (e.g., UnpicklingError) → try raw binary memmap heuristics
+                    print(f"   ⚠️ allow_pickle load failed: {e2}")
+                    print("   🔎 Trying to interpret file as raw float32 binary (no .npy header)")
                     try:
-                        print("   🔁 Converting object array into numeric ndarray (this may use significant RAM)...")
-                        training_embeddings = np.vstack(training_embeddings).astype(np.float32)
-                        print(f"   ✓ Converted to numeric ndarray with shape: {training_embeddings.shape}")
-                    except Exception as conv_e:
-                        print(f"   ❌ Failed to convert object array to numeric: {conv_e}")
+                        import os
+                        fsize = os.path.getsize(TRAINING_EMBEDDINGS_PATH)
+                        # Common embedding dims to try (BERT/PCA variants)
+                        candidate_dims = [768, 512, 384, 300, 256, 128]
+                        integer_candidates = []
+                        for d in candidate_dims:
+                            if fsize % (4 * d) == 0:
+                                n = fsize // (4 * d)
+                                integer_candidates.append((int(n), d))
+                                print(f"      possible shape: ({int(n)},{d}) based on file size")
+
+                        # Prefer candidate matching training labels length if available
+                        chosen = None
+                        if 'training_cluster_labels' in locals():
+                            target_n = len(training_cluster_labels)
+                            for n, d in integer_candidates:
+                                if n == target_n:
+                                    chosen = (n, d)
+                                    break
+
+                        # If no exact match, pick unique candidate if only one
+                        if chosen is None and len(integer_candidates) == 1:
+                            chosen = integer_candidates[0]
+
+                        if chosen is not None:
+                            n, d = chosen
+                            print(f"   ✓ Loading as raw memmap with shape=({n},{d})")
+                            training_embeddings = np.memmap(str(TRAINING_EMBEDDINGS_PATH), dtype='float32', mode='r', shape=(n, d))
+                        else:
+                            raise RuntimeError("Could not determine raw memmap shape automatically.\n" \
+                                               "Check how the file was written or run header inspection script.")
+                    except Exception as e3:
+                        print(f"   ❌ Raw memmap fallback failed: {e3}")
                         raise
             else:
                 raise
