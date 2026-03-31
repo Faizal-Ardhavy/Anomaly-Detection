@@ -2051,9 +2051,9 @@ def main():
             print("\n📂 Loading checkpoint data...")
             
             # Load checkpoint
-            test_cluster_labels = np.load(CHECKPOINT_STEP6, allow_pickle=False)
-            predictions = np.load(CHECKPOINT_STEP7_PRED, allow_pickle=False)
-            confidence = np.load(CHECKPOINT_STEP7_CONF, allow_pickle=False)
+            test_cluster_labels = np.load(CHECKPOINT_STEP6, allow_pickle=True)
+            predictions = np.load(CHECKPOINT_STEP7_PRED, allow_pickle=True)
+            confidence = np.load(CHECKPOINT_STEP7_CONF, allow_pickle=True)
             methods = np.load(CHECKPOINT_STEP7_METHODS, allow_pickle=True)
             
             with open(CHECKPOINT_METADATA, 'rb') as f:
