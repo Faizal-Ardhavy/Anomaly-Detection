@@ -2109,7 +2109,26 @@ def main():
         print("="*70)
         
         print(f"\nLoading training embeddings: {TRAINING_EMBEDDINGS_PATH}")
-        training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, mmap_mode='r')
+        # Try memmap first for minimal RAM usage; fallback to allow_pickle if file contains pickled objects
+        try:
+            training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, mmap_mode='r')
+            print("   ✓ Loaded via memmap")
+        except ValueError as e:
+            msg = str(e).lower()
+            if 'pickled' in msg or 'pickle' in msg:
+                print("   ⚠️ File contains pickled objects — loading with allow_pickle=True (may use large RAM)")
+                training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, allow_pickle=True)
+                # If loaded as object-dtype (array of objects), attempt to convert to numeric 2D array
+                if getattr(training_embeddings, 'dtype', None) == object:
+                    try:
+                        print("   🔁 Converting object array into numeric ndarray (this may use significant RAM)...")
+                        training_embeddings = np.vstack(training_embeddings).astype(np.float32)
+                        print(f"   ✓ Converted to numeric ndarray with shape: {training_embeddings.shape}")
+                    except Exception as conv_e:
+                        print(f"   ❌ Failed to convert object array to numeric: {conv_e}")
+                        raise
+            else:
+                raise
         print(f"   ✓ Shape: {training_embeddings.shape}")
         
         # Truncate if needed (match cluster labels length)
