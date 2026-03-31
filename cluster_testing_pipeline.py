@@ -377,17 +377,88 @@ def load_template_events(template_path: Path) -> set:
     print(f"   Loading template: {template_path.name}")
     
     if not template_path.exists():
-        raise FileNotFoundError(f"Template file not found: {template_path}")
-    
-    df = pd.read_csv(template_path, sep='\t')
-    
-    if 'Label' not in df.columns:
-        raise ValueError(f"Label column not found in {template_path}")
-    
-    label_set = set(df['Label'].unique())
-    print(f"   ✓ Found {len(label_set)} unique Labels")
-    
+        print(f"   ⚠️ Template file not found: {template_path}")
+        return set()
+
+    # Try to read with a TSV header first
+    try:
+        df = pd.read_csv(template_path, sep='\t', dtype=str, engine='python', encoding='utf-8')
+    except Exception:
+        # Fallback: we'll inspect the file manually
+        df = None
+
+    # If dataframe loaded and has a Label-like column (case-insensitive), use it
+    if df is not None:
+        label_col = None
+        for col in df.columns:
+            if str(col).strip().lower() == 'label':
+                label_col = col
+                break
+        if label_col is not None:
+            label_set = set(df[label_col].dropna().astype(str).str.strip())
+            print(f"   ✓ Found {len(label_set)} unique Labels (column: {label_col})")
+            return label_set
+
+    # If we reach here, either pandas didn't parse header correctly (e.g., file has leading metadata lines)
+    # or there is no header. Scan file to find a header line containing 'Label' or fallback to first column values.
+    header_idx = None
+    with open(template_path, 'r', encoding='utf-8', errors='replace') as f:
+        for i, line in enumerate(f):
+            line_stripped = line.strip()
+            if not line_stripped:
+                continue
+            # Look for a tab-separated header that includes 'Label'
+            if '\t' in line_stripped:
+                cols = [c.strip().lower() for c in line_stripped.split('\t')]
+                if 'label' in cols:
+                    header_idx = i
+                    break
+
+    if header_idx is not None:
+        try:
+            df2 = pd.read_csv(template_path, sep='\t', header=0, skiprows=header_idx, dtype=str, engine='python', encoding='utf-8')
+            # Find label column name (original case)
+            label_col = None
+            for col in df2.columns:
+                if str(col).strip().lower() == 'label':
+                    label_col = col
+                    break
+            if label_col is not None:
+                label_set = set(df2[label_col].dropna().astype(str).str.strip())
+                print(f"   ✓ Found {len(label_set)} unique Labels (header at line {header_idx+1})")
+                return label_set
+        except Exception as e:
+            print(f"   ⚠️ Failed to parse header at line {header_idx+1}: {e}")
+
+    # Last resort: treat the file as plain lines and extract first tab-separated column (skip obvious metadata lines)
+    labels = []
+    with open(template_path, 'r', encoding='utf-8', errors='replace') as f:
+        for line in f:
+            s = line.strip()
+            if not s:
+                continue
+            # Skip obvious metadata summary lines (e.g., "Total ... = <num>")
+            if s.lower().startswith('total') and '=' in s:
+                continue
+            # If tab-separated, take first column, else whole line
+            if '\t' in s:
+                labels.append(s.split('\t', 1)[0].strip())
+            else:
+                labels.append(s)
+
+    label_set = set(labels)
+    print(f"   ✓ Inferred {len(label_set)} unique Labels (plain-line fallback)")
     return label_set
+    
+    # df = pd.read_csv(template_path, sep='\t')
+    
+    # if 'Label' not in df.columns:
+    #     raise ValueError(f"Label column not found in {template_path}")
+    
+    # label_set = set(df['Label'].unique())
+    # print(f"   ✓ Found {len(label_set)} unique Labels")
+    
+    # return label_set
 
 
 def load_metadata_labels_3way(tsv_path: Path, 
