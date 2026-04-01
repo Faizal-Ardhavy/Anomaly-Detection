@@ -599,6 +599,113 @@ def _load_metadata_chunked(tsv_path: Path, normal_events: set, nonnormal_events:
     return labels_array
 
 
+def build_metadata_label_memmap(tsv_path: Path, normal_events: set, nonnormal_events: set,
+                                memmap_path: Path = None, chunksize: int = 1_000_000):
+    """
+    Create (or reuse) a disk-backed uint8 memmap with one label per metadata row:
+      0 = NORMAL, 1 = NON-NORMAL, 2 = ANOMALY/unknown
+
+    This function is streaming-friendly and avoids loading the whole TSV into RAM.
+    It does two streaming passes (count lines, then parse by chunks) but uses minimal memory.
+    Returns a numpy memmap-like array for fast index access.
+    """
+    import os, json
+    from numpy.lib.format import open_memmap
+
+    if not tsv_path.exists():
+        raise FileNotFoundError(f"Metadata TSV not found: {tsv_path}")
+
+    if memmap_path is None:
+        memmap_path = CHECKPOINT_DIR / (tsv_path.name + '.labels.npy')
+    meta_path = memmap_path.with_suffix('.meta.json')
+
+    tsv_mtime = os.path.getmtime(tsv_path)
+
+    # Reuse existing memmap if metadata unchanged
+    if memmap_path.exists() and meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+            if meta.get('tsv_mtime') == tsv_mtime:
+                print(f"   ✓ Reusing existing metadata labels memmap: {memmap_path.name}")
+                return open_memmap(memmap_path, mode='r')
+        except Exception:
+            pass
+
+    # Fast line count (binary read)
+    print("   ⚙️ Counting metadata rows (fast scan)...")
+    with open(tsv_path, 'rb') as f:
+        n_bytes = 1024 * 1024
+        total_lines = 0
+        for chunk in iter(lambda: f.read(n_bytes), b''):
+            total_lines += chunk.count(b'\n')
+
+    # Detect header presence and label column name (cheap sample)
+    label_col = None
+    header_rows = 0
+    try:
+        df_head = pd.read_csv(tsv_path, sep='\t', nrows=0)
+        for col in df_head.columns:
+            if str(col).strip().lower() == 'label':
+                label_col = col
+                break
+    except Exception:
+        # fallback: inspect first 10 text lines
+        with open(tsv_path, 'r', encoding='utf-8', errors='replace') as f:
+            for i in range(10):
+                line = f.readline()
+                if not line:
+                    break
+                if '\t' in line and 'label' in line.lower():
+                    label_col = 'label'
+                    break
+
+    # Compute effective data rows (subtract header if detected)
+    if label_col is not None:
+        data_rows = total_lines - 1
+    else:
+        data_rows = total_lines
+
+    print(f"   ✓ Detected ~{data_rows:,} metadata rows")
+
+    # Create memmap file
+    print(f"   ⚙️ Creating memmap ({memmap_path.name}) with dtype=uint8")
+    mm = open_memmap(memmap_path, mode='w+', dtype='uint8', shape=(data_rows,))
+
+    # Stream-parse label column in chunks and populate memmap
+    read_cols = [label_col] if label_col is not None else None
+    pos = 0
+    chunk_iter = pd.read_csv(tsv_path, sep='\t', usecols=read_cols, dtype=str, chunksize=chunksize)
+    for chunk_num, chunk in enumerate(chunk_iter, 1):
+        if label_col is None:
+            # If no header/label column, assume first column
+            series = chunk.iloc[:, 0].fillna('').astype(str).str.strip()
+        else:
+            series = chunk[label_col].fillna('').astype(str).str.strip()
+
+        # Vectorized mapping: NORMAL=0, NON-NORMAL=1, else 2
+        isin_normal = series.isin(normal_events)
+        isin_nonnormal = series.isin(nonnormal_events)
+        arr = np.where(isin_normal, 0, np.where(isin_nonnormal, 1, 2)).astype('uint8')
+        L = len(arr)
+        mm[pos:pos+L] = arr
+        pos += L
+
+        if chunk_num % 10 == 0:
+            print(f"      Processed {pos:,}/{data_rows:,} rows ({chunk_num} chunks)")
+
+    mm.flush()
+
+    # Save metadata for reuse
+    try:
+        meta = {'tsv_mtime': tsv_mtime, 'n_rows': int(data_rows)}
+        meta_path.write_text(json.dumps(meta))
+    except Exception:
+        pass
+
+    print(f"   ✓ Built metadata labels memmap: {memmap_path.name}")
+    return mm
+
+
 def load_multiple_testing_sets(testing_sets, normal_template_path=None, nonnormal_template_path=None):
     """
     Load multiple testing sets - Ground truth based on set name
@@ -794,6 +901,7 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     metadata_df = None
     normal_events = None
     nonnormal_events = None
+    metadata_labels = None
     
     if USE_METADATA_LABELING and metadata_tsv_path and normal_template_path and nonnormal_template_path:
         print(f"\n📖 Loading training metadata for cluster labeling...")
@@ -808,12 +916,40 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         if not metadata_tsv_path.exists():
             print(f"   ⚠️ Metadata file not found, falling back to size-based classification")
         else:
-            metadata_df = pd.read_csv(metadata_tsv_path, sep='\t')
-            if 'label' not in metadata_df.columns:
-                print(f"   ⚠️ 'label' column not found in metadata, falling back to size-based")
-                metadata_df = None
+            # Use streaming memmap ONLY for Thunderbird (huge dataset); keep BGL on legacy path
+            if DATASET.lower() == 'thunderbird':
+                try:
+                    # Build or reuse a compact uint8 memmap with per-row labels (0=Normal,1=NonNormal,2=Anomaly)
+                    metadata_labels = build_metadata_label_memmap(metadata_tsv_path, normal_events, nonnormal_events)
+                    print(f"   ✓ Metadata labels memmap shape: {metadata_labels.shape}")
+                    metadata_df = None
+                except Exception as e:
+                    print(f"   ⚠️ Streaming memmap build failed: {e}. Falling back to safe chunked load.")
+                    try:
+                        metadata_df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'], dtype=str)
+                        print(f"   ✓ Loaded {len(metadata_df):,} metadata rows (labels only)")
+                        metadata_labels = None
+                    except Exception as e2:
+                        print(f"   ❌ Failed to load metadata TSV: {e2}. Falling back to size-based classification")
+                        metadata_df = None
+                        metadata_labels = None
             else:
-                print(f"   ✓ Loaded {len(metadata_df):,} metadata rows")
+                # BGL or other datasets: keep legacy behavior (try to load label column into memory first)
+                try:
+                    metadata_df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'], dtype=str)
+                    print(f"   ✓ Loaded {len(metadata_df):,} metadata rows (labels only, legacy mode)")
+                    metadata_labels = None
+                except Exception as e:
+                    print(f"   ⚠️ Loading label-only failed ({e}), trying chunked streaming as fallback")
+                    try:
+                        labels_array = _load_metadata_chunked(metadata_tsv_path, normal_events, nonnormal_events, chunksize=1000000)
+                        metadata_labels = labels_array
+                        metadata_df = None
+                        print(f"   ✓ Loaded labels via chunked streaming: {len(labels_array):,} rows")
+                    except Exception as e2:
+                        print(f"   ❌ Failed to load metadata via chunked streaming: {e2}. Falling back to size-based classification")
+                        metadata_df = None
+                        metadata_labels = None
     
     # Calculate silhouette scores if embeddings provided
     silhouette_per_sample = None
@@ -888,7 +1024,7 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         labeling_reason = None
         
         # METADATA-BASED LABELING (if enabled and data available)
-        if metadata_df is not None and normal_events and nonnormal_events:
+        if (metadata_df is not None or metadata_labels is not None) and normal_events and nonnormal_events:
             # RULE 1: Very small clusters → ANOMALY (too rare/suspicious)
             if n_samples < adaptive_anomaly_threshold:
                 cluster_label = 2
@@ -901,15 +1037,23 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
                 else:
                     sample_indices = cluster_indices
                 
-                # Count normal vs non-normal from metadata
-                for idx in sample_indices:
-                    if idx < len(metadata_df):  # Safety check
-                        event_label = metadata_df.iloc[idx]['label']
-                        
-                        if event_label in normal_events:
-                            count_normal += 1
-                        elif event_label in nonnormal_events:
-                            count_nonnormal += 1
+                # Count normal vs non-normal from metadata (use memmap labels when available)
+                if metadata_labels is not None:
+                    for idx in sample_indices:
+                        if idx < len(metadata_labels):
+                            code = int(metadata_labels[idx])
+                            if code == 0:
+                                count_normal += 1
+                            elif code == 1:
+                                count_nonnormal += 1
+                elif metadata_df is not None:
+                    for idx in sample_indices:
+                        if idx < len(metadata_df):  # Safety check
+                            event_label = metadata_df.iloc[idx]['label']
+                            if event_label in normal_events:
+                                count_normal += 1
+                            elif event_label in nonnormal_events:
+                                count_nonnormal += 1
                 
                 total = count_normal + count_nonnormal
                 
@@ -983,7 +1127,7 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     
     # Summary statistics
     print(f"\n{'='*70}")
-    if metadata_df is not None:
+    if metadata_df is not None or metadata_labels is not None:
         print("CLUSTER CHARACTERISTICS SUMMARY (SEMI-SUPERVISED: Metadata-based)")
     else:
         print("CLUSTER CHARACTERISTICS SUMMARY (Size-based)")
@@ -992,7 +1136,7 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     print(f"\nTotal clusters: {len(df)}")
     
     # Count by label (if metadata labeling was used)
-    if 'label_name' in df.columns and metadata_df is not None:
+    if 'label_name' in df.columns and (metadata_df is not None or metadata_labels is not None):
         print(f"\nCluster Labels (Metadata-based):")
         label_counts = df['label_name'].value_counts()
         for label, count in label_counts.items():
