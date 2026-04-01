@@ -371,6 +371,43 @@ print("✓ Results saved", file=sys.stderr)
 # HELPER FUNCTIONS
 # ============================================================================
 
+def load_kmeans_model_compat(model_path: Path):
+    """
+    Load K-Means model with compatibility fallback for NumPy RNG pickle format
+    differences across environments/versions.
+    """
+    try:
+        return joblib.load(model_path)
+    except ValueError as e:
+        msg = str(e)
+        # Common cross-version issue:
+        # ValueError: <class 'numpy.random._mt19937.MT19937'> is not a known BitGenerator module.
+        if 'BitGenerator module' in msg or 'MT19937' in msg:
+            print("   ⚠️ Detected NumPy RNG pickle compatibility issue. Retrying with compatibility patch...")
+            try:
+                import numpy.random._pickle as np_random_pickle
+
+                original_ctor = np_random_pickle.__bit_generator_ctor
+
+                def _compat_bit_generator_ctor(bit_generator_name):
+                    # Older pickles may store class objects instead of string names.
+                    if isinstance(bit_generator_name, type):
+                        bit_generator_name = bit_generator_name.__name__
+                    elif hasattr(bit_generator_name, '__name__'):
+                        bit_generator_name = bit_generator_name.__name__
+                    return original_ctor(bit_generator_name)
+
+                np_random_pickle.__bit_generator_ctor = _compat_bit_generator_ctor
+                model = joblib.load(model_path)
+                print("   ✓ Model loaded with NumPy compatibility patch")
+                return model
+            except Exception as e2:
+                raise RuntimeError(
+                    f"Failed to load model due to NumPy compatibility issue. "
+                    f"Try using the same NumPy version used during training. Details: {e2}"
+                ) from e2
+        raise
+
 def load_template_events(template_path: Path) -> set:
     """
     Load Label set from template TSV file
@@ -2468,7 +2505,7 @@ def main():
         
         if ALGORITHM == "kmeans":
             print("\nLoading K-Means model...")
-            model = joblib.load(TRAINED_MODEL_PATH)
+            model = load_kmeans_model_compat(TRAINED_MODEL_PATH)
             print(f"   ✓ Model loaded: {type(model).__name__}")
             
             print("\nPredicting cluster assignments for test data...")
