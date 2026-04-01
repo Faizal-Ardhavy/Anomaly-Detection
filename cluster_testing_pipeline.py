@@ -88,11 +88,11 @@ else:  # Thunderbird
 if ALGORITHM == "kmeans":
     TRAINED_MODEL_PATH = Path("kmeans/thunderbird_pca256_k_params/model_kmeans_log.pkl")
     TRAINING_LABELS_PATH = Path("kmeans/thunderbird_pca256_k_params/cluster_labels.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_thunderbird_pca256_embeddings.npy")
 else:  # dbscan
     TRAINING_LABELS_PATH = Path("dbscan/thunderbird_model/dbscan_labels.npy")
     TRAINING_CONFIG_PATH = Path("dbscan/thunderbird_model/dbscan_config.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_thunderbird_pca256_embeddings.npy")
 
 # Path to testing data - MULTIPLE SETS (Ground truth based on set name!)
 # Each testing set should have embeddings file and a name indicating its class
@@ -407,6 +407,127 @@ def load_kmeans_model_compat(model_path: Path):
                     f"Try using the same NumPy version used during training. Details: {e2}"
                 ) from e2
         raise
+
+
+def find_kmeans_training_embeddings_for_dim(original_path: Path, dataset: str,
+                                            embedding_type: str, target_dim: int):
+    """
+    Try common path patterns to locate training embeddings with the required feature dimension.
+    Returns tuple(path, memmap_array) or None.
+    """
+    dataset_name = dataset.lower()
+    emb_type = embedding_type.lower()
+
+    candidates = [original_path]
+    original_str = str(original_path)
+
+    if emb_type != "base":
+        candidates.extend([
+            Path(original_str.replace("_dataset_vector/", f"_dataset_vector_{emb_type}/")),
+            Path(original_str.replace("_dataset_vector/", f"_dataset_vector_{emb_type}_testing/")),
+            Path(original_str.replace(
+                f"after_preprocessed_{dataset_name}_embeddings.npy",
+                f"after_preprocessed_{dataset_name}_{emb_type}_embeddings.npy"
+            )),
+            Path(f"/media/bioinfo04/Expansion/2427051003_dataset_vector_{emb_type}/after_preprocessed_{dataset_name}_{emb_type}_embeddings.npy"),
+            Path(f"/media/bioinfo04/Expansion/2427051003_dataset_vector_{emb_type}/after_preprocessed_{dataset_name}_embeddings.npy"),
+        ])
+
+    seen = set()
+    for path in candidates:
+        norm = str(path)
+        if norm in seen:
+            continue
+        seen.add(norm)
+
+        if not path.exists():
+            continue
+
+        try:
+            emb = np.load(path, mmap_mode='r')
+            if emb.ndim == 2 and emb.shape[1] == target_dim:
+                return path, emb
+        except Exception:
+            continue
+
+    return None
+
+
+def build_kmeans_centroids_from_labels(training_embeddings, training_cluster_labels,
+                                       chunk_size=300000):
+    """
+    Build cluster centroids from embeddings and precomputed cluster labels using chunked streaming.
+    """
+    labels = np.asarray(training_cluster_labels)
+    unique_clusters = sorted(int(c) for c in np.unique(labels) if int(c) != -1)
+    if not unique_clusters:
+        raise RuntimeError("No valid cluster IDs found in training labels for centroid fallback")
+
+    cluster_ids = np.array(unique_clusters, dtype=np.int64)
+    cluster_to_idx = {cid: i for i, cid in enumerate(cluster_ids)}
+
+    n_features = int(training_embeddings.shape[1])
+    sums = np.zeros((len(cluster_ids), n_features), dtype=np.float64)
+    counts = np.zeros(len(cluster_ids), dtype=np.int64)
+
+    total = len(labels)
+    for start in tqdm(range(0, total, chunk_size), desc="   Building centroids"):
+        end = min(start + chunk_size, total)
+        emb_chunk = np.asarray(training_embeddings[start:end], dtype=np.float32)
+        lbl_chunk = np.asarray(labels[start:end], dtype=np.int64)
+
+        for cid in np.unique(lbl_chunk):
+            if cid == -1:
+                continue
+            idx = cluster_to_idx.get(int(cid))
+            if idx is None:
+                continue
+
+            mask = (lbl_chunk == cid)
+            if np.any(mask):
+                sums[idx] += emb_chunk[mask].sum(axis=0, dtype=np.float64)
+                counts[idx] += int(mask.sum())
+
+    valid = counts > 0
+    if not np.any(valid):
+        raise RuntimeError("All centroid counts are zero. Check training labels/embeddings alignment.")
+
+    centroids = (sums[valid] / counts[valid, None]).astype(np.float32)
+    cluster_ids = cluster_ids[valid].astype(np.int32)
+    return cluster_ids, centroids
+
+
+def predict_kmeans_from_centroids(test_embeddings, cluster_ids, centroids,
+                                  use_cosine=True, batch_size=20000):
+    """
+    Predict cluster IDs by nearest centroid in batches to keep RAM usage stable.
+    """
+    n_test = len(test_embeddings)
+    predictions = np.empty(n_test, dtype=np.int32)
+
+    if use_cosine:
+        centroids_ref = normalize(centroids.astype(np.float32), norm='l2', copy=True)
+    else:
+        centroids_ref = centroids.astype(np.float32)
+        centroids_sq = np.sum(centroids_ref * centroids_ref, axis=1)[None, :]
+
+    for start in tqdm(range(0, n_test, batch_size), desc="   Assigning by centroids"):
+        end = min(start + batch_size, n_test)
+        batch = np.asarray(test_embeddings[start:end], dtype=np.float32)
+
+        if use_cosine:
+            batch = normalize(batch, norm='l2', copy=False)
+            scores = batch @ centroids_ref.T
+            best = np.argmax(scores, axis=1)
+        else:
+            dot = batch @ centroids_ref.T
+            batch_sq = np.sum(batch * batch, axis=1, keepdims=True)
+            dist2 = batch_sq + centroids_sq - 2.0 * dot
+            best = np.argmin(dist2, axis=1)
+
+        predictions[start:end] = cluster_ids[best]
+
+    return predictions
 
 def load_template_events(template_path: Path) -> set:
     """
@@ -2505,12 +2626,84 @@ def main():
         
         if ALGORITHM == "kmeans":
             print("\nLoading K-Means model...")
-            model = load_kmeans_model_compat(TRAINED_MODEL_PATH)
-            print(f"   ✓ Model loaded: {type(model).__name__}")
-            
-            print("\nPredicting cluster assignments for test data...")
-            test_cluster_labels = model.predict(test_embeddings)
-            print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples")
+            model = None
+            try:
+                model = load_kmeans_model_compat(TRAINED_MODEL_PATH)
+                print(f"   ✓ Model loaded: {type(model).__name__}")
+            except Exception as model_err:
+                print(f"   ⚠️ K-Means model load failed: {model_err}")
+                print("   ⚠️ Falling back to centroid-based assignment from cluster labels")
+
+            if model is not None:
+                print("\nPredicting cluster assignments for test data...")
+                test_cluster_labels = model.predict(test_embeddings)
+                print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples")
+            else:
+                training_embeddings_for_kmeans = training_embeddings
+                labels_for_centroids = training_cluster_labels
+
+                # If feature dimensions don't match, try common path patterns for the selected embedding type.
+                if training_embeddings_for_kmeans.shape[1] != test_embeddings.shape[1]:
+                    print(
+                        f"   ⚠️ Feature mismatch: train_dim={training_embeddings_for_kmeans.shape[1]} "
+                        f"vs test_dim={test_embeddings.shape[1]}"
+                    )
+                    print("   🔎 Searching for matching training embeddings path...")
+                    resolved = find_kmeans_training_embeddings_for_dim(
+                        TRAINING_EMBEDDINGS_PATH,
+                        DATASET,
+                        EMBEDDING_TYPE,
+                        int(test_embeddings.shape[1])
+                    )
+                    if resolved is None:
+                        raise RuntimeError(
+                            "Could not find training embeddings with matching feature dimension for "
+                            f"EMBEDDING_TYPE={EMBEDDING_TYPE}. "
+                            "Update TRAINING_EMBEDDINGS_PATH to the correct file."
+                        )
+
+                    resolved_path, training_embeddings_for_kmeans = resolved
+                    print(f"   ✓ Using fallback training embeddings: {resolved_path}")
+
+                if len(training_embeddings_for_kmeans) != len(labels_for_centroids):
+                    min_len = min(len(training_embeddings_for_kmeans), len(labels_for_centroids))
+                    print(
+                        f"   ⚠️ Alignment mismatch for centroid build. "
+                        f"Truncating to {min_len:,} rows"
+                    )
+                    training_embeddings_for_kmeans = training_embeddings_for_kmeans[:min_len]
+                    labels_for_centroids = labels_for_centroids[:min_len]
+
+                centroid_cache_path = CHECKPOINT_DIR / (
+                    f"kmeans_centroids_{DATASET.lower()}_{EMBEDDING_TYPE.lower()}_"
+                    f"{training_embeddings_for_kmeans.shape[1]}d.npz"
+                )
+
+                if centroid_cache_path.exists():
+                    print(f"\nLoading centroid cache: {centroid_cache_path.name}")
+                    cache = np.load(centroid_cache_path)
+                    cluster_ids = cache['cluster_ids'].astype(np.int32)
+                    centroids = cache['centroids'].astype(np.float32)
+                    print(f"   ✓ Loaded {len(cluster_ids)} centroids")
+                else:
+                    print("\nBuilding centroid cache from training labels...")
+                    cluster_ids, centroids = build_kmeans_centroids_from_labels(
+                        training_embeddings_for_kmeans,
+                        labels_for_centroids,
+                        chunk_size=300000
+                    )
+                    np.savez(centroid_cache_path, cluster_ids=cluster_ids, centroids=centroids)
+                    print(f"   ✓ Saved centroid cache: {centroid_cache_path.name}")
+
+                print("\nPredicting cluster assignments for test data (centroid fallback)...")
+                test_cluster_labels = predict_kmeans_from_centroids(
+                    test_embeddings,
+                    cluster_ids,
+                    centroids,
+                    use_cosine=USE_COSINE_DISTANCE,
+                    batch_size=20000
+                )
+                print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples")
             
         else:  # dbscan
             print("\nFor DBSCAN, using k-NN to assign test samples to nearest cluster...")
