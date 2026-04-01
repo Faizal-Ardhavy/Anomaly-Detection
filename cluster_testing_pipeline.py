@@ -834,7 +834,7 @@ def determine_cluster_type_3way(cluster_id, size, purity):
 
 def analyze_cluster_characteristics(cluster_labels, embeddings=None, 
                                     compute_silhouette=True, 
-                                    silhouette_sample_size=100000,
+                                    silhouette_sample_size=1000000,
                                     metadata_tsv_path=None,
                                     normal_template_path=None,
                                     nonnormal_template_path=None):
@@ -966,7 +966,7 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
             # Adaptive cap: Thunderbird is extremely large, so force smaller sample for safe RAM/compute
             effective_sample_size = int(silhouette_sample_size)
             if DATASET.lower() == 'thunderbird':
-                safe_cap = 20_000
+                safe_cap = 200_000
                 if effective_sample_size > safe_cap:
                     print(f"   ⚠️ Thunderbird detected: reducing silhouette sample from {effective_sample_size:,} to {safe_cap:,} for memory safety")
                     effective_sample_size = safe_cap
