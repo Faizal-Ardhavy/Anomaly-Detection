@@ -952,59 +952,68 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
                         metadata_labels = None
     
     # Calculate silhouette scores if embeddings provided
-    silhouette_per_sample = None
     overall_silhouette = None
+    cluster_silhouette_lookup = {}
     
     if compute_silhouette and embeddings is not None:
         print(f"\n   Computing Silhouette scores...")
         
         # Filter out noise points (-1) as silhouette doesn't apply to noise
         non_noise_mask = (cluster_labels != -1)
-        n_non_noise = non_noise_mask.sum()
+        n_non_noise = int(non_noise_mask.sum())
         
         if n_non_noise > 0:
-            # Extract non-noise samples
-            non_noise_indices = np.where(non_noise_mask)[0]
-            non_noise_labels = cluster_labels[non_noise_mask]
-            non_noise_embeddings = embeddings[non_noise_mask]
-            
-            # Try GPU computation if enabled, with automatic CPU fallback
-            if USE_GPU_SILHOUETTE:
-                # GPU function handles sampling internally
-                sample_size = silhouette_sample_size if n_non_noise > silhouette_sample_size else None
-                overall_silhouette, silhouette_per_sample_non_noise = compute_silhouette_gpu(
-                    non_noise_embeddings, 
-                    non_noise_labels,
-                    kernel_name=GPU_KERNEL_NAME,
-                    sample_size=sample_size
-                )
-            else:
-                # CPU-only computation (sklearn)
-                if n_non_noise > silhouette_sample_size:
-                    print(f"   Dataset large ({n_non_noise:,} samples), subsampling to {silhouette_sample_size:,}...")
-                    subsample_idx = np.random.choice(len(non_noise_labels), silhouette_sample_size, replace=False)
-                    
-                    silhouette_per_sample_subsample = silhouette_samples(
-                        non_noise_embeddings[subsample_idx], 
-                        non_noise_labels[subsample_idx]
-                    )
-                    overall_silhouette = silhouette_score(
-                        non_noise_embeddings[subsample_idx], 
-                        non_noise_labels[subsample_idx]
-                    )
-                    
-                    # Map back to non-noise dataset
-                    silhouette_per_sample_non_noise = np.zeros(len(non_noise_labels))
-                    silhouette_per_sample_non_noise[subsample_idx] = silhouette_per_sample_subsample
+            # Adaptive cap: Thunderbird is extremely large, so force smaller sample for safe RAM/compute
+            effective_sample_size = int(silhouette_sample_size)
+            if DATASET.lower() == 'thunderbird':
+                safe_cap = 20_000
+                if effective_sample_size > safe_cap:
+                    print(f"   ⚠️ Thunderbird detected: reducing silhouette sample from {effective_sample_size:,} to {safe_cap:,} for memory safety")
+                    effective_sample_size = safe_cap
+
+            if n_non_noise > effective_sample_size:
+                print(f"   Sampling {effective_sample_size:,} non-noise points from {n_non_noise:,} for silhouette...")
+                # If there are no noise points, avoid building a huge index array
+                if n_non_noise == len(cluster_labels):
+                    sampled_indices = np.random.choice(len(cluster_labels), effective_sample_size, replace=False)
                 else:
-                    silhouette_per_sample_non_noise = silhouette_samples(non_noise_embeddings, non_noise_labels)
-                    overall_silhouette = silhouette_score(non_noise_embeddings, non_noise_labels)
-                
-                print(f"   ✓ Silhouette Score: {overall_silhouette:.4f}")
-            
-            # Map to full dataset (including noise as NaN)
-            silhouette_per_sample = np.full(len(cluster_labels), np.nan)
-            silhouette_per_sample[non_noise_mask] = silhouette_per_sample_non_noise
+                    non_noise_indices = np.flatnonzero(non_noise_mask)
+                    sampled_indices = np.random.choice(non_noise_indices, effective_sample_size, replace=False)
+            else:
+                print(f"   Using all {n_non_noise:,} non-noise points for silhouette")
+                if n_non_noise == len(cluster_labels):
+                    sampled_indices = np.arange(len(cluster_labels))
+                else:
+                    sampled_indices = np.flatnonzero(non_noise_mask)
+
+            sample_labels = cluster_labels[sampled_indices]
+            sample_embeddings = embeddings[sampled_indices]
+
+            # Silhouette requires >=2 clusters in sampled data
+            n_unique_sample_clusters = len(np.unique(sample_labels))
+            if n_unique_sample_clusters < 2:
+                print("   ⚠️ Silhouette skipped: sampled data has < 2 clusters")
+            else:
+                # We already sampled; pass sample_size=None to avoid second sampling inside helper
+                if USE_GPU_SILHOUETTE:
+                    overall_silhouette, sample_silhouette_scores = compute_silhouette_gpu(
+                        sample_embeddings,
+                        sample_labels,
+                        kernel_name=GPU_KERNEL_NAME,
+                        sample_size=None
+                    )
+                else:
+                    overall_silhouette = silhouette_score(sample_embeddings, sample_labels)
+                    sample_silhouette_scores = silhouette_samples(sample_embeddings, sample_labels)
+                    print(f"   ✓ Silhouette Score: {overall_silhouette:.4f}")
+
+                # Build per-cluster silhouette mean from sampled points only
+                sample_df = pd.DataFrame({
+                    'cluster_id': sample_labels,
+                    'sil': sample_silhouette_scores
+                })
+                cluster_silhouette_lookup = sample_df.groupby('cluster_id')['sil'].mean().to_dict()
+                print(f"   ✓ Computed sampled silhouette for {len(cluster_silhouette_lookup):,} clusters")
         else:
             print(f"   ⚠️ All samples are noise, cannot compute silhouette")
     
@@ -1101,14 +1110,10 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
                 label_name = 'REGULAR'
                 labeling_reason = 'regular_size'
         
-        # Calculate mean silhouette for this cluster (skip noise)
+        # Silhouette mean for this cluster (from sampled points only)
         cluster_silhouette = None
-        if silhouette_per_sample is not None and cluster_id != -1:
-            cluster_sil_scores = silhouette_per_sample[mask]
-            # Remove NaN values (from non-sampled points)
-            cluster_sil_scores = cluster_sil_scores[~np.isnan(cluster_sil_scores)]
-            if len(cluster_sil_scores) > 0:
-                cluster_silhouette = cluster_sil_scores.mean()
+        if cluster_id != -1:
+            cluster_silhouette = cluster_silhouette_lookup.get(cluster_id)
         
         cluster_info.append({
             'cluster_id': cluster_id,
