@@ -132,6 +132,9 @@ MIN_CLUSTER_SIZE_FOR_LABELING = 50  # < 50 samples → auto ANOMALY (too small/r
 # Example: 0.2% of 3.9M ≈ 7,800 samples
 KMEANS_ANOMALY_CLUSTER_RATIO = 0.002   # Cluster < 0.2% of training set → ANOMALY
 KMEANS_SMALL_CLUSTER_RATIO = 0.005     # Cluster < 0.5% of training set → NON-NORMAL (legacy mode)
+# Additional guardrail using average cluster size (helps when K changes a lot)
+KMEANS_ANOMALY_AVG_CLUSTER_RATIO = 0.04  # < 4% of avg cluster size → ANOMALY candidate
+KMEANS_SMALL_AVG_CLUSTER_RATIO = 0.12    # < 12% of avg cluster size → NON-NORMAL candidate
 
 # Legacy: Size-based classification (if USE_METADATA_LABELING = False)
 VERY_SMALL_CLUSTER_THRESHOLD = 50   # < 50 samples → ANOMALY
@@ -882,17 +885,42 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
 
     # Adaptive thresholds for K-Means (avoid fixed tiny thresholds on large datasets)
     if ALGORITHM == "kmeans":
-        adaptive_anomaly_threshold = max(
+        n_kmeans_clusters = len(set(cluster_labels) - {-1})
+        avg_cluster_size = total_training_samples / max(n_kmeans_clusters, 1)
+
+        # Base thresholds by dataset scale
+        base_anomaly_threshold = max(
             MIN_CLUSTER_SIZE_FOR_LABELING,
             int(total_training_samples * KMEANS_ANOMALY_CLUSTER_RATIO)
         )
-        adaptive_small_threshold = max(
+        base_small_threshold = max(
             SMALL_CLUSTER_THRESHOLD,
             int(total_training_samples * KMEANS_SMALL_CLUSTER_RATIO)
         )
+
+        # Guardrail thresholds by average cluster size (sensitive to K)
+        avg_anomaly_threshold = max(
+            MIN_CLUSTER_SIZE_FOR_LABELING,
+            int(avg_cluster_size * KMEANS_ANOMALY_AVG_CLUSTER_RATIO)
+        )
+        avg_small_threshold = max(
+            SMALL_CLUSTER_THRESHOLD,
+            int(avg_cluster_size * KMEANS_SMALL_AVG_CLUSTER_RATIO)
+        )
+
+        # Final thresholds: choose the stricter (smaller) boundary to avoid over-labeling on huge datasets
+        adaptive_anomaly_threshold = min(base_anomaly_threshold, avg_anomaly_threshold)
+        adaptive_small_threshold = min(base_small_threshold, avg_small_threshold)
+        adaptive_small_threshold = max(adaptive_small_threshold, adaptive_anomaly_threshold + 1)
+
         print(f"   K-Means adaptive thresholds:")
-        print(f"      ANOMALY if size < {adaptive_anomaly_threshold:,} ({KMEANS_ANOMALY_CLUSTER_RATIO*100:.2f}% of train)")
-        print(f"      NON-NORMAL if size < {adaptive_small_threshold:,} ({KMEANS_SMALL_CLUSTER_RATIO*100:.2f}% of train, legacy)")
+        print(f"      Train samples: {total_training_samples:,}, clusters: {n_kmeans_clusters:,}, avg cluster size: {avg_cluster_size:,.0f}")
+        print(f"      Base anomaly threshold: {base_anomaly_threshold:,} ({KMEANS_ANOMALY_CLUSTER_RATIO*100:.2f}% of train)")
+        print(f"      Avg-based anomaly threshold: {avg_anomaly_threshold:,} ({KMEANS_ANOMALY_AVG_CLUSTER_RATIO*100:.2f}% of avg cluster)")
+        print(f"      FINAL ANOMALY if size < {adaptive_anomaly_threshold:,}")
+        print(f"      Base non-normal threshold: {base_small_threshold:,} ({KMEANS_SMALL_CLUSTER_RATIO*100:.2f}% of train)")
+        print(f"      Avg-based non-normal threshold: {avg_small_threshold:,} ({KMEANS_SMALL_AVG_CLUSTER_RATIO*100:.2f}% of avg cluster)")
+        print(f"      FINAL NON-NORMAL if size < {adaptive_small_threshold:,}")
     else:
         adaptive_anomaly_threshold = MIN_CLUSTER_SIZE_FOR_LABELING
         adaptive_small_threshold = SMALL_CLUSTER_THRESHOLD
