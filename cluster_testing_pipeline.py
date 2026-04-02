@@ -2285,73 +2285,84 @@ def fast_cluster_assignment_faiss(training_embeddings, training_cluster_labels,
     print(f"\n   🚀 Using FAISS IVF for FAST approximate k-NN...")
     print(f"      nlist={nlist} Voronoi cells, nprobe={nprobe} cells searched")
     print(f"      Expected: 10-50x faster, ~98% accuracy vs exact k-NN")
-    
-    # Normalize embeddings if using cosine distance
-    if use_cosine:
-        print(f"      Normalizing embeddings for cosine similarity...")
-        training_norm = normalize(np.array(training_embeddings), norm='l2', copy=True)
-        test_norm = normalize(test_embeddings, norm='l2', copy=True)
+
+    n_train_total = len(training_embeddings)
+    n_test = len(test_embeddings)
+    train_labels = np.asarray(training_cluster_labels)
+
+    # Optional downsampling for very large training sets to keep memory bounded.
+    if SUBSAMPLE_KNN_TRAINING and n_train_total > KNN_SUBSAMPLE_SIZE:
+        print(f"      Subsampling training set: {n_train_total:,} -> {KNN_SUBSAMPLE_SIZE:,}")
+        rng = np.random.default_rng(42)
+        sample_idx = np.sort(rng.choice(n_train_total, size=KNN_SUBSAMPLE_SIZE, replace=False))
+        training_arr = np.asarray(training_embeddings[sample_idx], dtype=np.float32)
+        train_labels = train_labels[sample_idx]
     else:
-        training_norm = np.array(training_embeddings, dtype=np.float32)
-        test_norm = test_embeddings.astype(np.float32)
-    
-    # Ensure contiguous arrays
-    training_norm = np.ascontiguousarray(training_norm, dtype=np.float32)
-    test_norm = np.ascontiguousarray(test_norm, dtype=np.float32)
-    
-    d = training_norm.shape[1]  # Embedding dimension
-    
-    print(f"      Training data: {len(training_norm):,} samples, dim={d}")
-    print(f"      Test data: {len(test_norm):,} samples")
+        training_arr = np.asarray(training_embeddings, dtype=np.float32)
+
+    if use_cosine:
+        print(f"      Normalizing training vectors for cosine similarity...")
+        if not training_arr.flags.writeable:
+            training_arr = training_arr.copy()
+        normalize(training_arr, norm='l2', copy=False)
+
+    training_arr = np.ascontiguousarray(training_arr, dtype=np.float32)
+    d = training_arr.shape[1]
+
+    print(f"      Training data: {len(training_arr):,} samples, dim={d}")
+    print(f"      Test data: {n_test:,} samples")
     
     # Build IVF index
     print(f"      Building FAISS IVF index...")
+    effective_nlist = max(1, min(nlist, len(training_arr), max(64, len(training_arr) // 100)))
     quantizer = faiss.IndexFlatL2(d)  # Quantizer for Voronoi cells
-    index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_L2)
+    index = faiss.IndexIVFFlat(quantizer, d, effective_nlist, faiss.METRIC_L2)
     
     # Train index (clustering training data into Voronoi cells)
-    print(f"      Training index (clustering into {nlist} cells)...")
+    print(f"      Training index (clustering into {effective_nlist} cells)...")
     
     # For very large datasets, train on subset
-    if len(training_norm) > 1_000_000:
+    if len(training_arr) > 1_000_000:
         print(f"         Sampling 1M points for training (large dataset optimization)...")
-        train_sample_idx = np.random.choice(len(training_norm), 1_000_000, replace=False)
-        index.train(training_norm[train_sample_idx])
+        train_sample_idx = np.random.choice(len(training_arr), 1_000_000, replace=False)
+        index.train(training_arr[train_sample_idx])
     else:
-        index.train(training_norm)
+        index.train(training_arr)
     
     # Add all training data to index
-    print(f"      Adding {len(training_norm):,} training vectors to index...")
-    index.add(training_norm)
+    print(f"      Adding {len(training_arr):,} training vectors to index...")
+    add_batch_size = 200000
+    for start in tqdm(range(0, len(training_arr), add_batch_size), desc="      Indexing"):
+        end = min(start + add_batch_size, len(training_arr))
+        index.add(training_arr[start:end])
     
     # Set search parameters
     index.nprobe = nprobe  # How many cells to visit during search
     
     print(f"      ✓ Index built! Starting k-NN search...")
-    print(f"      Processing {len(test_norm):,} test samples in batches of {batch_size:,}...")
+    print(f"      Processing {n_test:,} test samples in batches of {batch_size:,}...")
     
     # Search in batches (memory efficient)
-    all_indices = []
-    n_batches = (len(test_norm) + batch_size - 1) // batch_size
-    
-    for i in tqdm(range(0, len(test_norm), batch_size), desc="      Searching", total=n_batches):
-        batch_end = min(i + batch_size, len(test_norm))
-        batch = test_norm[i:batch_end]
-        
+    nearest_indices = np.empty(n_test, dtype=np.int64)
+    n_batches = (n_test + batch_size - 1) // batch_size
+
+    for i in tqdm(range(0, n_test, batch_size), desc="      Searching", total=n_batches):
+        batch_end = min(i + batch_size, n_test)
+        batch = np.array(test_embeddings[i:batch_end], dtype=np.float32, copy=True)
+        if use_cosine:
+            normalize(batch, norm='l2', copy=False)
+
         # Search k=1 nearest neighbors
-        distances, indices = index.search(batch, 1)
-        all_indices.append(indices.flatten())
-    
-    # Combine results
-    nearest_indices = np.concatenate(all_indices)
+        _, indices = index.search(np.ascontiguousarray(batch), 1)
+        nearest_indices[i:batch_end] = indices.ravel()
     
     # Map indices to cluster labels
-    test_cluster_labels = training_cluster_labels[nearest_indices]
+    test_cluster_labels = train_labels[nearest_indices]
     
     print(f"      ✓ Assigned {len(test_cluster_labels):,} test samples using FAISS IVF!")
     
     # Memory cleanup
-    del index, quantizer, training_norm, test_norm, all_indices, nearest_indices
+    del index, quantizer, training_arr, nearest_indices
     gc.collect()
     
     return test_cluster_labels
@@ -2366,14 +2377,25 @@ def fast_cluster_assignment_sklearn_batched(training_embeddings, training_cluste
     """
     print(f"\n   Using batched sklearn k-NN (exact, slower)...")
     
-    # Normalize if cosine
+    n_train_total = len(training_embeddings)
+    n_test = len(test_embeddings)
+    train_labels = np.asarray(training_cluster_labels)
+
+    if SUBSAMPLE_KNN_TRAINING and n_train_total > KNN_SUBSAMPLE_SIZE:
+        print(f"      Subsampling training set: {n_train_total:,} -> {KNN_SUBSAMPLE_SIZE:,}")
+        rng = np.random.default_rng(42)
+        sample_idx = np.sort(rng.choice(n_train_total, size=KNN_SUBSAMPLE_SIZE, replace=False))
+        training_norm = np.asarray(training_embeddings[sample_idx], dtype=np.float32)
+        train_labels = train_labels[sample_idx]
+    else:
+        training_norm = np.asarray(training_embeddings, dtype=np.float32)
+
     if use_cosine:
-        training_norm = normalize(np.array(training_embeddings), norm='l2', copy=True)
-        test_norm = normalize(test_embeddings, norm='l2', copy=True)
+        if not training_norm.flags.writeable:
+            training_norm = training_norm.copy()
+        normalize(training_norm, norm='l2', copy=False)
         metric = 'cosine'
     else:
-        training_norm = np.array(training_embeddings, dtype=np.float32)
-        test_norm = test_embeddings.astype(np.float32)
         metric = 'euclidean'
     
     # Build k-NN model
@@ -2381,22 +2403,22 @@ def fast_cluster_assignment_sklearn_batched(training_embeddings, training_cluste
     knn = NearestNeighbors(n_neighbors=1, metric=metric, n_jobs=-1, algorithm='auto')
     knn.fit(training_norm)
     
-    print(f"      Searching {len(test_norm):,} test samples in batches of {batch_size:,}...")
+    print(f"      Searching {n_test:,} test samples in batches of {batch_size:,}...")
     
     # Search in batches with progress bar
-    all_indices = []
-    n_batches = (len(test_norm) + batch_size - 1) // batch_size
-    
-    for i in tqdm(range(0, len(test_norm), batch_size), desc="      Searching", total=n_batches):
-        batch_end = min(i + batch_size, len(test_norm))
-        batch = test_norm[i:batch_end]
-        
-        distances, indices = knn.kneighbors(batch)
-        all_indices.append(indices.flatten())
-    
-    # Combine results
-    nearest_indices = np.concatenate(all_indices)
-    test_cluster_labels = training_cluster_labels[nearest_indices]
+    nearest_indices = np.empty(n_test, dtype=np.int64)
+    n_batches = (n_test + batch_size - 1) // batch_size
+
+    for i in tqdm(range(0, n_test, batch_size), desc="      Searching", total=n_batches):
+        batch_end = min(i + batch_size, n_test)
+        batch = np.array(test_embeddings[i:batch_end], dtype=np.float32, copy=True)
+        if use_cosine:
+            normalize(batch, norm='l2', copy=False)
+
+        _, indices = knn.kneighbors(batch)
+        nearest_indices[i:batch_end] = indices.ravel()
+
+    test_cluster_labels = train_labels[nearest_indices]
     
     print(f"      ✓ Assigned {len(test_cluster_labels):,} test samples!")
     
