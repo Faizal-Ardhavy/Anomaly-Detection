@@ -90,8 +90,8 @@ if ALGORITHM == "kmeans":
     TRAINING_LABELS_PATH = Path("kmeans/thunderbird_k_params/cluster_labels.npy")
     TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
 else:  # dbscan
-    TRAINING_LABELS_PATH = Path("dbscan/thunderbird_model/dbscan_labels.npy")
-    TRAINING_CONFIG_PATH = Path("dbscan/thunderbird_model/dbscan_config.npy")
+    TRAINING_LABELS_PATH = Path("dbscan/thunderbird_base_model/dbscan_labels.npy")
+    TRAINING_CONFIG_PATH = Path("dbscan/thunderbird_base_model/dbscan_config.npy")
     TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
 
 # Path to testing data - MULTIPLE SETS (Ground truth based on set name!)
