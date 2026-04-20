@@ -125,8 +125,8 @@ USE_METADATA_LABELING = True        # Use training metadata to label clusters (R
 METADATA_SAMPLE_SIZE = 1000         # Samples per cluster for metadata check (or full if smaller)
 MAJORITY_THRESHOLD = 0.70           # ≥70% majority → assign that class label
 
-# Cluster labeling thresholds
-MIN_CLUSTER_SIZE_FOR_LABELING = 50  # < 50 samples → auto ANOMALY (too small/rare)
+# Legacy threshold (used only when metadata labeling is disabled)
+MIN_CLUSTER_SIZE_FOR_LABELING = 50
 
 # K-Means adaptive size rules (recommended for large datasets)
 # Example: 0.2% of 3.9M ≈ 7,800 samples
@@ -1041,47 +1041,53 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     cluster_info = []
     total_training_samples = len(cluster_labels)
 
-    # Adaptive thresholds for K-Means (avoid fixed tiny thresholds on large datasets)
-    if ALGORITHM == "kmeans":
-        n_kmeans_clusters = len(set(cluster_labels) - {-1})
-        avg_cluster_size = total_training_samples / max(n_kmeans_clusters, 1)
+    # Size thresholds are only used in legacy (non-metadata) mode.
+    if not USE_METADATA_LABELING:
+        # Adaptive thresholds for K-Means (avoid fixed tiny thresholds on large datasets)
+        if ALGORITHM == "kmeans":
+            n_kmeans_clusters = len(set(cluster_labels) - {-1})
+            avg_cluster_size = total_training_samples / max(n_kmeans_clusters, 1)
 
-        # Base thresholds by dataset scale
-        base_anomaly_threshold = max(
-            MIN_CLUSTER_SIZE_FOR_LABELING,
-            int(total_training_samples * KMEANS_ANOMALY_CLUSTER_RATIO)
-        )
-        base_small_threshold = max(
-            SMALL_CLUSTER_THRESHOLD,
-            int(total_training_samples * KMEANS_SMALL_CLUSTER_RATIO)
-        )
+            # Base thresholds by dataset scale
+            base_anomaly_threshold = max(
+                MIN_CLUSTER_SIZE_FOR_LABELING,
+                int(total_training_samples * KMEANS_ANOMALY_CLUSTER_RATIO)
+            )
+            base_small_threshold = max(
+                SMALL_CLUSTER_THRESHOLD,
+                int(total_training_samples * KMEANS_SMALL_CLUSTER_RATIO)
+            )
 
-        # Guardrail thresholds by average cluster size (sensitive to K)
-        avg_anomaly_threshold = max(
-            MIN_CLUSTER_SIZE_FOR_LABELING,
-            int(avg_cluster_size * KMEANS_ANOMALY_AVG_CLUSTER_RATIO)
-        )
-        avg_small_threshold = max(
-            SMALL_CLUSTER_THRESHOLD,
-            int(avg_cluster_size * KMEANS_SMALL_AVG_CLUSTER_RATIO)
-        )
+            # Guardrail thresholds by average cluster size (sensitive to K)
+            avg_anomaly_threshold = max(
+                MIN_CLUSTER_SIZE_FOR_LABELING,
+                int(avg_cluster_size * KMEANS_ANOMALY_AVG_CLUSTER_RATIO)
+            )
+            avg_small_threshold = max(
+                SMALL_CLUSTER_THRESHOLD,
+                int(avg_cluster_size * KMEANS_SMALL_AVG_CLUSTER_RATIO)
+            )
 
-        # Final thresholds: choose the stricter (smaller) boundary to avoid over-labeling on huge datasets
-        adaptive_anomaly_threshold = min(base_anomaly_threshold, avg_anomaly_threshold)
-        adaptive_small_threshold = min(base_small_threshold, avg_small_threshold)
-        adaptive_small_threshold = max(adaptive_small_threshold, adaptive_anomaly_threshold + 1)
+            # Final thresholds: choose the stricter (smaller) boundary to avoid over-labeling on huge datasets
+            adaptive_anomaly_threshold = min(base_anomaly_threshold, avg_anomaly_threshold)
+            adaptive_small_threshold = min(base_small_threshold, avg_small_threshold)
+            adaptive_small_threshold = max(adaptive_small_threshold, adaptive_anomaly_threshold + 1)
 
-        print(f"   K-Means adaptive thresholds:")
-        print(f"      Train samples: {total_training_samples:,}, clusters: {n_kmeans_clusters:,}, avg cluster size: {avg_cluster_size:,.0f}")
-        print(f"      Base anomaly threshold: {base_anomaly_threshold:,} ({KMEANS_ANOMALY_CLUSTER_RATIO*100:.2f}% of train)")
-        print(f"      Avg-based anomaly threshold: {avg_anomaly_threshold:,} ({KMEANS_ANOMALY_AVG_CLUSTER_RATIO*100:.2f}% of avg cluster)")
-        print(f"      FINAL ANOMALY if size < {adaptive_anomaly_threshold:,}")
-        print(f"      Base non-normal threshold: {base_small_threshold:,} ({KMEANS_SMALL_CLUSTER_RATIO*100:.2f}% of train)")
-        print(f"      Avg-based non-normal threshold: {avg_small_threshold:,} ({KMEANS_SMALL_AVG_CLUSTER_RATIO*100:.2f}% of avg cluster)")
-        print(f"      FINAL NON-NORMAL if size < {adaptive_small_threshold:,}")
+            print(f"   K-Means adaptive thresholds:")
+            print(f"      Train samples: {total_training_samples:,}, clusters: {n_kmeans_clusters:,}, avg cluster size: {avg_cluster_size:,.0f}")
+            print(f"      Base anomaly threshold: {base_anomaly_threshold:,} ({KMEANS_ANOMALY_CLUSTER_RATIO*100:.2f}% of train)")
+            print(f"      Avg-based anomaly threshold: {avg_anomaly_threshold:,} ({KMEANS_ANOMALY_AVG_CLUSTER_RATIO*100:.2f}% of avg cluster)")
+            print(f"      FINAL ANOMALY if size < {adaptive_anomaly_threshold:,}")
+            print(f"      Base non-normal threshold: {base_small_threshold:,} ({KMEANS_SMALL_CLUSTER_RATIO*100:.2f}% of train)")
+            print(f"      Avg-based non-normal threshold: {avg_small_threshold:,} ({KMEANS_SMALL_AVG_CLUSTER_RATIO*100:.2f}% of avg cluster)")
+            print(f"      FINAL NON-NORMAL if size < {adaptive_small_threshold:,}")
+        else:
+            adaptive_anomaly_threshold = MIN_CLUSTER_SIZE_FOR_LABELING
+            adaptive_small_threshold = SMALL_CLUSTER_THRESHOLD
     else:
-        adaptive_anomaly_threshold = MIN_CLUSTER_SIZE_FOR_LABELING
-        adaptive_small_threshold = SMALL_CLUSTER_THRESHOLD
+        adaptive_anomaly_threshold = None
+        adaptive_small_threshold = None
+        print(f"   Metadata labeling mode: majority-only (threshold={MAJORITY_THRESHOLD:.0%}), no cluster-size cutoff")
     
     # Load metadata for label assignment (if metadata labeling enabled)
     metadata_df = None
@@ -1220,61 +1226,55 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         
         # METADATA-BASED LABELING (if enabled and data available)
         if (metadata_df is not None or metadata_labels is not None) and normal_events and nonnormal_events:
-            # RULE 1: Very small clusters → ANOMALY (too rare/suspicious)
-            if n_samples < adaptive_anomaly_threshold:
+            # Majority-only labeling: no cluster-size threshold.
+            if n_samples > METADATA_SAMPLE_SIZE:
+                sample_indices = np.random.choice(cluster_indices, METADATA_SAMPLE_SIZE, replace=False)
+            else:
+                sample_indices = cluster_indices
+
+            # Count normal vs non-normal from metadata (use memmap labels when available)
+            if metadata_labels is not None:
+                for idx in sample_indices:
+                    if idx < len(metadata_labels):
+                        code = int(metadata_labels[idx])
+                        if code == 0:
+                            count_normal += 1
+                        elif code == 1:
+                            count_nonnormal += 1
+            elif metadata_df is not None:
+                for idx in sample_indices:
+                    if idx < len(metadata_df):  # Safety check
+                        event_label = metadata_df.iloc[idx]['label']
+                        if event_label in normal_events:
+                            count_normal += 1
+                        elif event_label in nonnormal_events:
+                            count_nonnormal += 1
+
+            total = count_normal + count_nonnormal
+
+            if total == 0:
+                # No known events → ANOMALY
                 cluster_label = 2
                 label_name = 'ANOMALY'
-                labeling_reason = 'too_small'
+                labeling_reason = 'no_known_events'
             else:
-                # RULE 2: Sample & check metadata labels
-                if n_samples > METADATA_SAMPLE_SIZE:
-                    sample_indices = np.random.choice(cluster_indices, METADATA_SAMPLE_SIZE, replace=False)
+                pct_normal = count_normal / total
+                pct_nonnormal = count_nonnormal / total
+
+                # Majority vote with 70% threshold
+                if pct_normal >= MAJORITY_THRESHOLD:
+                    cluster_label = 0  # NORMAL
+                    label_name = 'NORMAL'
+                    labeling_reason = 'normal_majority'
+                elif pct_nonnormal >= MAJORITY_THRESHOLD:
+                    cluster_label = 1  # NON-NORMAL
+                    label_name = 'NON-NORMAL'
+                    labeling_reason = 'nonnormal_majority'
                 else:
-                    sample_indices = cluster_indices
-                
-                # Count normal vs non-normal from metadata (use memmap labels when available)
-                if metadata_labels is not None:
-                    for idx in sample_indices:
-                        if idx < len(metadata_labels):
-                            code = int(metadata_labels[idx])
-                            if code == 0:
-                                count_normal += 1
-                            elif code == 1:
-                                count_nonnormal += 1
-                elif metadata_df is not None:
-                    for idx in sample_indices:
-                        if idx < len(metadata_df):  # Safety check
-                            event_label = metadata_df.iloc[idx]['label']
-                            if event_label in normal_events:
-                                count_normal += 1
-                            elif event_label in nonnormal_events:
-                                count_nonnormal += 1
-                
-                total = count_normal + count_nonnormal
-                
-                if total == 0:
-                    # No known events → ANOMALY
+                    # Mixed cluster (no clear majority) → ANOMALY
                     cluster_label = 2
                     label_name = 'ANOMALY'
-                    labeling_reason = 'no_known_events'
-                else:
-                    pct_normal = count_normal / total
-                    pct_nonnormal = count_nonnormal / total
-                    
-                    # RULE 3: Majority vote
-                    if pct_normal >= MAJORITY_THRESHOLD:
-                        cluster_label = 0  # NORMAL
-                        label_name = 'NORMAL'
-                        labeling_reason = 'normal_majority'
-                    elif pct_nonnormal >= MAJORITY_THRESHOLD:
-                        cluster_label = 1  # NON-NORMAL
-                        label_name = 'NON-NORMAL'
-                        labeling_reason = 'nonnormal_majority'
-                    else:
-                        # Mixed cluster (no clear majority) → ANOMALY
-                        cluster_label = 2
-                        label_name = 'ANOMALY'
-                        labeling_reason = 'mixed_ambiguous'
+                    labeling_reason = 'mixed_ambiguous'
         
         # FALLBACK: SIZE-BASED CLASSIFICATION (legacy or when metadata unavailable)
         else:
@@ -1837,11 +1837,7 @@ def visualize_results(cluster_df, y_true, y_pred, metrics):
     ax4 = axes[1, 1]
     ax4.hist(cluster_df['n_samples'], bins=50, edgecolor='black', alpha=0.7)
     
-    if USE_METADATA_LABELING:
-        # Show metadata labeling threshold
-        ax4.axvline(MIN_CLUSTER_SIZE_FOR_LABELING, color='red', linestyle='--',
-                    label=f'Min size for labeling={MIN_CLUSTER_SIZE_FOR_LABELING}')
-    else:
+    if not USE_METADATA_LABELING:
         # Show legacy size-based thresholds
         ax4.axvline(VERY_SMALL_CLUSTER_THRESHOLD, color='orange', linestyle='--',
                     label=f'Very small={VERY_SMALL_CLUSTER_THRESHOLD}')
@@ -1851,11 +1847,13 @@ def visualize_results(cluster_df, y_true, y_pred, metrics):
     ax4.set_xlabel('Cluster Size (samples)')
     ax4.set_ylabel('Number of Clusters')
     if USE_METADATA_LABELING:
-        ax4.set_title('Cluster Size Distribution (Metadata-based)')
+        ax4.set_title('Cluster Size Distribution (Metadata-based, no size cutoff)')
     else:
         ax4.set_title('Cluster Size Distribution (Size-based)')
     ax4.set_yscale('log')
-    ax4.legend()
+    handles, labels = ax4.get_legend_handles_labels()
+    if handles:
+        ax4.legend()
     ax4.grid(alpha=0.3)
     
     plt.tight_layout()
