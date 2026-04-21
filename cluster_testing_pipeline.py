@@ -125,6 +125,13 @@ USE_METADATA_LABELING = True        # Use training metadata to label clusters (R
 METADATA_SAMPLE_SIZE = 1000         # Samples per cluster for metadata check (or full if smaller)
 MAJORITY_THRESHOLD = 0.70           # ≥70% majority → assign that class label
 
+# Robust metadata-labeling safeguards (helps avoid all-normal collapse)
+FORCE_DBSCAN_NOISE_AS_ANOMALY = True
+MIN_METADATA_EVIDENCE = 30          # Minimum known-label samples before trusting metadata vote
+NORMAL_STRONG_THRESHOLD = 0.85      # Strong normal evidence required for NORMAL assignment
+NONNORMAL_PRESENCE_THRESHOLD = 0.15 # If >=15% non-normal evidence, mark as NON-NORMAL
+AMBIGUOUS_CLUSTER_AS_ANOMALY = True
+
 # Legacy threshold (used only when metadata labeling is disabled)
 MIN_CLUSTER_SIZE_FOR_LABELING = 50
 
@@ -148,6 +155,12 @@ KNN_HIGH_CONFIDENCE = 0.80          # 8/10 vote = high confidence
 KNN_MEDIUM_CONFIDENCE = 0.60        # 6/10 vote = medium confidence
 
 USE_COSINE_DISTANCE = True          # Normalize embeddings (recommended for BERT)
+
+# Distance-based reject option to avoid forced assignments into known clusters
+ENABLE_DISTANCE_REJECTION = True
+REJECTION_REFERENCE_SAMPLE_SIZE = 200_000
+REJECTION_QUANTILE = 0.995
+REJECTION_DISTANCE_MULTIPLIER = 1.10
 
 # Large dataset optimization parameters
 SUBSAMPLE_KNN_TRAINING = True       # Subsample training data for k-NN (for huge datasets)
@@ -370,6 +383,12 @@ print("✓ Results saved", file=sys.stderr)
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
+
+def normalize_label_token(value) -> str:
+    """Normalize metadata/template label token for robust matching."""
+    if pd.isna(value):
+        return ''
+    return str(value).strip().upper()
 
 def sample_non_noise_indices(cluster_labels, non_noise_mask, sample_size, seed=42):
     """
@@ -606,7 +625,8 @@ def load_template_events(template_path: Path) -> set:
                 label_col = col
                 break
         if label_col is not None:
-            label_set = set(df[label_col].dropna().astype(str).str.strip())
+            label_set = set(df[label_col].map(normalize_label_token))
+            label_set.discard('')
             print(f"   ✓ Found {len(label_set)} unique Labels (column: {label_col})")
             return label_set
 
@@ -635,7 +655,8 @@ def load_template_events(template_path: Path) -> set:
                     label_col = col
                     break
             if label_col is not None:
-                label_set = set(df2[label_col].dropna().astype(str).str.strip())
+                label_set = set(df2[label_col].map(normalize_label_token))
+                label_set.discard('')
                 print(f"   ✓ Found {len(label_set)} unique Labels (header at line {header_idx+1})")
                 return label_set
         except Exception as e:
@@ -658,6 +679,8 @@ def load_template_events(template_path: Path) -> set:
                 labels.append(s)
 
     label_set = set(labels)
+    label_set = {normalize_label_token(v) for v in label_set}
+    label_set.discard('')
     print(f"   ✓ Inferred {len(label_set)} unique Labels (plain-line fallback)")
     return label_set
     
@@ -730,13 +753,14 @@ def load_metadata_labels_3way(tsv_path: Path,
     stats = {'normal': 0, 'nonnormal': 0, 'anomaly': 0, 'unknown': 0}
     
     for label_val in df['label']:
-        if pd.isna(label_val) or label_val == '':
+        normalized_label = normalize_label_token(label_val)
+        if normalized_label == '':
             labels.append(2)  # Missing/empty label = ANOMALY
             stats['unknown'] += 1
-        elif label_val in normal_events:
+        elif normalized_label in normal_events:
             labels.append(0)  # NORMAL
             stats['normal'] += 1
-        elif label_val in nonnormal_events:
+        elif normalized_label in nonnormal_events:
             labels.append(1)  # NON-NORMAL
             stats['nonnormal'] += 1
         else:
@@ -777,13 +801,14 @@ def _load_metadata_chunked(tsv_path: Path, normal_events: set, nonnormal_events:
         
         # Process chunk
         for label_val in chunk_df['label']:
-            if pd.isna(label_val) or label_val == '':
+            normalized_label = normalize_label_token(label_val)
+            if normalized_label == '':
                 labels.append(2)
                 stats['unknown'] += 1
-            elif label_val in normal_events:
+            elif normalized_label in normal_events:
                 labels.append(0)
                 stats['normal'] += 1
-            elif label_val in nonnormal_events:
+            elif normalized_label in nonnormal_events:
                 labels.append(1)
                 stats['nonnormal'] += 1
             else:
@@ -889,11 +914,12 @@ def build_metadata_label_memmap(tsv_path: Path, normal_events: set, nonnormal_ev
     for chunk_num, chunk in enumerate(chunk_iter, 1):
         if label_col is None:
             # If no header/label column, assume first column
-            series = chunk.iloc[:, 0].fillna('').astype(str).str.strip()
+            series = chunk.iloc[:, 0].map(normalize_label_token)
         else:
-            series = chunk[label_col].fillna('').astype(str).str.strip()
+            series = chunk[label_col].map(normalize_label_token)
 
         # Vectorized mapping: NORMAL=0, NON-NORMAL=1, else 2
+        series = series.fillna('')
         isin_normal = series.isin(normal_events)
         isin_nonnormal = series.isin(nonnormal_events)
         arr = np.where(isin_normal, 0, np.where(isin_nonnormal, 1, 2)).astype('uint8')
@@ -942,6 +968,7 @@ def load_multiple_testing_sets(testing_sets, normal_template_path=None, nonnorma
     all_embeddings = []
     all_labels = []
     test_set_info = []
+    current_idx = 0
     
     for test_set in testing_sets:
         name = test_set['name']
@@ -981,13 +1008,14 @@ def load_multiple_testing_sets(testing_sets, normal_template_path=None, nonnorma
         # Store info
         test_set_info.append({
             'name': name,
-            'start_idx': len(all_labels),
-            'end_idx': len(all_labels) + len(labels),
+            'start_idx': current_idx,
+            'end_idx': current_idx + len(labels),
             'n_samples': len(labels)
         })
         
         all_embeddings.append(embeddings)
         all_labels.append(labels)
+        current_idx += len(labels)
     
     # Combine all sets
     combined_embeddings = np.vstack(all_embeddings)
@@ -1137,7 +1165,11 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     else:
         adaptive_anomaly_threshold = None
         adaptive_small_threshold = None
-        print(f"   Metadata labeling mode: majority-only (threshold={MAJORITY_THRESHOLD:.0%}), no cluster-size cutoff")
+        print(f"   Metadata labeling mode: robust majority voting")
+        print(f"      MAJORITY_THRESHOLD={MAJORITY_THRESHOLD:.0%}")
+        print(f"      NORMAL_STRONG_THRESHOLD={NORMAL_STRONG_THRESHOLD:.0%}")
+        print(f"      NONNORMAL_PRESENCE_THRESHOLD={NONNORMAL_PRESENCE_THRESHOLD:.0%}")
+        print(f"      MIN_METADATA_EVIDENCE={MIN_METADATA_EVIDENCE}")
     
     # Load metadata for label assignment (if metadata labeling enabled)
     metadata_df = None
@@ -1152,6 +1184,9 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         print(f"   Loading templates...")
         normal_events = load_template_events(normal_template_path)
         nonnormal_events = load_template_events(nonnormal_template_path)
+        print(f"   Template coverage: NORMAL={len(normal_events):,}, NON-NORMAL={len(nonnormal_events):,}")
+        if len(normal_events) <= 1 or len(nonnormal_events) <= 1:
+            print("   ⚠️ Very low template cardinality detected. Check template format and label column parsing.")
         
         # Load metadata TSV
         print(f"   Loading metadata TSV: {metadata_tsv_path.name}")
@@ -1279,55 +1314,70 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         
         # METADATA-BASED LABELING (if enabled and data available)
         if (metadata_df is not None or metadata_labels is not None) and normal_events and nonnormal_events:
-            # Majority-only labeling: no cluster-size threshold.
-            if n_samples > METADATA_SAMPLE_SIZE:
-                sample_indices = np.random.choice(cluster_indices, METADATA_SAMPLE_SIZE, replace=False)
-            else:
-                sample_indices = cluster_indices
-
-            # Count normal vs non-normal from metadata (use memmap labels when available)
-            if metadata_labels is not None:
-                for idx in sample_indices:
-                    if idx < len(metadata_labels):
-                        code = int(metadata_labels[idx])
-                        if code == 0:
-                            count_normal += 1
-                        elif code == 1:
-                            count_nonnormal += 1
-            elif metadata_df is not None:
-                for idx in sample_indices:
-                    if idx < len(metadata_df):  # Safety check
-                        event_label = metadata_df.iloc[idx]['label']
-                        if event_label in normal_events:
-                            count_normal += 1
-                        elif event_label in nonnormal_events:
-                            count_nonnormal += 1
-
-            total = count_normal + count_nonnormal
-
-            if total == 0:
-                # No known events → ANOMALY
+            if cluster_id == -1 and FORCE_DBSCAN_NOISE_AS_ANOMALY:
                 cluster_label = 2
                 label_name = 'ANOMALY'
-                labeling_reason = 'no_known_events'
+                labeling_reason = 'dbscan_noise'
+                total = 0
             else:
-                pct_normal = count_normal / total
-                pct_nonnormal = count_nonnormal / total
-
-                # Majority vote with 70% threshold
-                if pct_normal >= MAJORITY_THRESHOLD:
-                    cluster_label = 0  # NORMAL
-                    label_name = 'NORMAL'
-                    labeling_reason = 'normal_majority'
-                elif pct_nonnormal >= MAJORITY_THRESHOLD:
-                    cluster_label = 1  # NON-NORMAL
-                    label_name = 'NON-NORMAL'
-                    labeling_reason = 'nonnormal_majority'
+                # Majority-only labeling with safeguards.
+                if n_samples > METADATA_SAMPLE_SIZE:
+                    sample_indices = np.random.choice(cluster_indices, METADATA_SAMPLE_SIZE, replace=False)
                 else:
-                    # Mixed cluster (no clear majority) → ANOMALY
+                    sample_indices = cluster_indices
+
+                # Count normal vs non-normal from metadata (use memmap labels when available)
+                if metadata_labels is not None:
+                    for idx in sample_indices:
+                        if idx < len(metadata_labels):
+                            code = int(metadata_labels[idx])
+                            if code == 0:
+                                count_normal += 1
+                            elif code == 1:
+                                count_nonnormal += 1
+                elif metadata_df is not None:
+                    for idx in sample_indices:
+                        if idx < len(metadata_df):  # Safety check
+                            event_label = normalize_label_token(metadata_df.iloc[idx]['label'])
+                            if event_label in normal_events:
+                                count_normal += 1
+                            elif event_label in nonnormal_events:
+                                count_nonnormal += 1
+
+                total = count_normal + count_nonnormal
+
+                if total < MIN_METADATA_EVIDENCE:
                     cluster_label = 2
                     label_name = 'ANOMALY'
-                    labeling_reason = 'mixed_ambiguous'
+                    labeling_reason = 'low_metadata_evidence'
+                else:
+                    pct_normal = count_normal / total
+                    pct_nonnormal = count_nonnormal / total
+
+                    if pct_nonnormal >= MAJORITY_THRESHOLD:
+                        cluster_label = 1
+                        label_name = 'NON-NORMAL'
+                        labeling_reason = 'nonnormal_majority'
+                    elif pct_normal >= NORMAL_STRONG_THRESHOLD and pct_nonnormal < NONNORMAL_PRESENCE_THRESHOLD:
+                        cluster_label = 0
+                        label_name = 'NORMAL'
+                        labeling_reason = 'normal_strong_majority'
+                    elif pct_nonnormal >= NONNORMAL_PRESENCE_THRESHOLD:
+                        cluster_label = 1
+                        label_name = 'NON-NORMAL'
+                        labeling_reason = 'nonnormal_presence'
+                    elif pct_normal >= MAJORITY_THRESHOLD:
+                        cluster_label = 0
+                        label_name = 'NORMAL'
+                        labeling_reason = 'normal_majority'
+                    elif AMBIGUOUS_CLUSTER_AS_ANOMALY:
+                        cluster_label = 2
+                        label_name = 'ANOMALY'
+                        labeling_reason = 'mixed_ambiguous'
+                    else:
+                        cluster_label = 1
+                        label_name = 'NON-NORMAL'
+                        labeling_reason = 'mixed_fallback_nonnormal'
         
         # FALLBACK: SIZE-BASED CLASSIFICATION (legacy or when metadata unavailable)
         else:
@@ -1478,20 +1528,16 @@ def hybrid_predict(test_cluster_labels, cluster_dict,
                     predictions[i] = cluster_label
                     
                     # Confidence based on metadata purity
-                    if label_reason == 'normal_majority':
+                    if label_reason in {'normal_majority', 'normal_strong_majority'}:
                         confidence[i] = cluster_info.get('pct_normal', 0.7)
                         methods.append('metadata_normal')
-                    elif label_reason == 'nonnormal_majority':
+                    elif label_reason in {'nonnormal_majority', 'nonnormal_presence', 'mixed_fallback_nonnormal'}:
                         confidence[i] = cluster_info.get('pct_nonnormal', 0.7)
                         methods.append('metadata_nonnormal')
-                    elif label_reason == 'too_small':
+                    elif label_reason in {'dbscan_noise', 'low_metadata_evidence', 'mixed_ambiguous'}:
                         predictions[i] = 2  # ANOMALY
-                        confidence[i] = 0.75
-                        methods.append('too_small')
-                    elif label_reason == 'mixed_ambiguous':
-                        predictions[i] = 2  # ANOMALY
-                        confidence[i] = 0.50
-                        methods.append('mixed')
+                        confidence[i] = 0.80 if label_reason == 'dbscan_noise' else 0.50
+                        methods.append(label_reason)
                     else:
                         confidence[i] = 0.60
                         methods.append(label_reason)
@@ -1633,26 +1679,29 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
     """
     print("\n📊 Calculating metrics...")
     
-    # Detect unique ground truth classes
+    # Ground-truth rows are dynamic, predicted columns are fixed to 3 classes (0/1/2)
     unique_true = sorted(set(y_true))
-    unique_pred = sorted(set(y_pred))
-    
-    print(f"   Ground truth classes: {unique_true} → {[['NORMAL', 'NON-NORMAL', 'ANOMALY'][i] for i in unique_true]}")
-    print(f"   Prediction classes:   {unique_pred} → {[['NORMAL', 'NON-NORMAL', 'ANOMALY'][i] for i in unique_pred]}")
+    present_pred = sorted(set(y_pred))
+    true_labels = [cls for cls in [0, 1, 2] if cls in unique_true]
+    pred_labels = [0, 1, 2]
+
+    print(f"   Ground truth classes: {true_labels} → {[['NORMAL', 'NON-NORMAL', 'ANOMALY'][i] for i in true_labels]}")
+    print(f"   Prediction classes:   {present_pred} → {[['NORMAL', 'NON-NORMAL', 'ANOMALY'][i] for i in present_pred]}")
     
     # Overall accuracy
     accuracy = accuracy_score(y_true, y_pred)
     
-    # Confusion matrix: rows=true classes, cols=predicted classes
-    # If ground truth has 2 classes (0,1) and predictions have 3 classes (0,1,2) → 2x3 matrix
-    cm = confusion_matrix(y_true, y_pred, labels=unique_true)
+    # Build full 3x3 matrix first, then keep only rows present in ground truth.
+    # This keeps columns fixed at [NORMAL, NON-NORMAL, ANOMALY].
+    cm_full = confusion_matrix(y_true, y_pred, labels=[0, 1, 2])
+    cm = cm_full[true_labels, :]
     
     # Per-class metrics - only for ground truth classes
     true_class_names = ['NORMAL', 'NON-NORMAL', 'ANOMALY']
     pred_class_names = ['NORMAL', 'NON-NORMAL', 'ANOMALY']
     
     # Calculate metrics only for classes that exist in ground truth
-    report_labels = [i for i in unique_true if i in [0, 1, 2]]
+    report_labels = true_labels
     report_names = [true_class_names[i] for i in report_labels]
     
     report = classification_report(
@@ -1679,30 +1728,27 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
         f = report[label_name]['f1-score']
         s = int(report[label_name]['support'])
         print(f"  {label_name:12s}    {p:.4f}    {r:.4f}    {f:.4f}   {s:,}")
-    
+
     print(f"\nMacro Avg:          {report['macro avg']['precision']:.4f}    "
           f"{report['macro avg']['recall']:.4f}    {report['macro avg']['f1-score']:.4f}")
     print(f"Weighted Avg:       {report['weighted avg']['precision']:.4f}    "
           f"{report['weighted avg']['recall']:.4f}    {report['weighted avg']['f1-score']:.4f}")
     
     # Dynamic confusion matrix display
-    print(f"\nConfusion Matrix ({len(unique_true)}x{len(unique_pred)}):")
+    print(f"\nConfusion Matrix ({len(true_labels)}x{len(pred_labels)}):")
     print(f"                 Predicted")
     
     # Header
     header = "                 "
-    for pred_class in unique_pred:
+    for pred_class in pred_labels:
         header += f"{pred_class_names[pred_class][:2]:>7}"
     print(header)
     
     # Rows
-    for i, true_class in enumerate(unique_true):
+    for i, true_class in enumerate(true_labels):
         row = f"    True  {true_class_names[true_class][:2]:2s} ["
-        for j, pred_class in enumerate(unique_pred):
-            if j < cm.shape[1]:
-                row += f"{cm[i,j]:>6} "
-            else:
-                row += "     0 "
+        for j, _ in enumerate(pred_labels):
+            row += f"{cm[i,j]:>6} "
         row += "]"
         print(row)
     
@@ -1710,34 +1756,31 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
     if len(unique_true) == 2:
         # 2-class ground truth analysis
         print(f"\n📊 Prediction Distribution:")
-        for i, true_class in enumerate(unique_true):
+        for i, true_class in enumerate(true_labels):
             true_name = true_class_names[true_class]
             total = cm[i].sum()
             print(f"\n  {true_name} ({total:,} samples):")
-            for j, pred_class in enumerate(unique_pred):
-                if j < cm.shape[1]:
-                    count = cm[i, j]
-                    pct = count / total * 100 if total > 0 else 0
-                    pred_name = pred_class_names[pred_class]
-                    status = "✓ Correct" if true_class == pred_class else "✗ Wrong"
-                    print(f"    → Predicted as {pred_name:12s}: {count:7,} ({pct:5.2f}%) {status}")
+            for j, pred_class in enumerate(pred_labels):
+                count = cm[i, j]
+                pct = count / total * 100 if total > 0 else 0
+                pred_name = pred_class_names[pred_class]
+                status = "✓ Correct" if true_class == pred_class else "✗ Wrong"
+                print(f"    → Predicted as {pred_name:12s}: {count:7,} ({pct:5.2f}%) {status}")
     else:
         # 3-class analysis (legacy)
-        if len(unique_true) > 2 and 2 in unique_true:
-            anomaly_idx = unique_true.index(2)
+        if len(true_labels) > 2 and 2 in true_labels:
+            anomaly_idx = true_labels.index(2)
             if cm[anomaly_idx].sum() > 0:
                 print(f"\nCritical Errors:")
                 print(f"  A → N (Anomaly missed as Normal):     {cm[anomaly_idx,0]:,} ({cm[anomaly_idx,0]/cm[anomaly_idx].sum()*100:.1f}%)")
-                if cm.shape[1] > 1:
-                    print(f"  A → NN (Anomaly downgrade):           {cm[anomaly_idx,1]:,} ({cm[anomaly_idx,1]/cm[anomaly_idx].sum()*100:.1f}%)")
+                print(f"  A → NN (Anomaly downgrade):           {cm[anomaly_idx,1]:,} ({cm[anomaly_idx,1]/cm[anomaly_idx].sum()*100:.1f}%)")
         
-        if 1 in unique_true:
-            nn_idx = unique_true.index(1)
+        if 1 in true_labels:
+            nn_idx = true_labels.index(1)
             if cm[nn_idx].sum() > 0:
                 print(f"\nNon-Normal Errors:")
                 print(f"  NN → N (Non-Normal missed as Normal): {cm[nn_idx,0]:,} ({cm[nn_idx,0]/cm[nn_idx].sum()*100:.1f}%)")
-                if cm.shape[1] > 2:
-                    print(f"  NN → A (Non-Normal escalated):        {cm[nn_idx,2]:,} ({cm[nn_idx,2]/cm[nn_idx].sum()*100:.1f}%)")
+                print(f"  NN → A (Non-Normal escalated):        {cm[nn_idx,2]:,} ({cm[nn_idx,2]/cm[nn_idx].sum()*100:.1f}%)")
     
     # Per-method analysis (if available)
     if method_labels is not None:
@@ -1754,7 +1797,7 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
             # Count per class in ground truth
             y_true_method = y_true[mask]
             class_counts = {}
-            for cls in unique_true:
+            for cls in true_labels:
                 class_counts[true_class_names[cls]] = np.sum(y_true_method == cls)
             
             print(f"\n{method.upper():12s}: {n_samples:,} samples ({n_samples/len(y_true)*100:.1f}%)")
@@ -1775,23 +1818,20 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
         f.write(classification_report(y_true, y_pred, 
                                       labels=report_labels,
                                       target_names=report_names))
-        f.write(f"\n\nConfusion Matrix ({len(unique_true)}x{len(unique_pred)}):\n")
+        f.write(f"\n\nConfusion Matrix ({len(true_labels)}x{len(pred_labels)}):\n")
         f.write("                 Predicted\n")
         
         # Header
         header = "                 "
-        for pred_class in unique_pred:
+        for pred_class in pred_labels:
             header += f"{pred_class_names[pred_class][:2]:>7}"
         f.write(header + "\n")
         
         # Rows
-        for i, true_class in enumerate(unique_true):
+        for i, true_class in enumerate(true_labels):
             row = f"    True  {true_class_names[true_class][:2]:2s} ["
-            for j, pred_class in enumerate(unique_pred):
-                if j < cm.shape[1]:
-                    row += f"{cm[i,j]:>6} "
-                else:
-                    row += "     0 "
+            for j, _ in enumerate(pred_labels):
+                row += f"{cm[i,j]:>6} "
             row += "]\n"
             f.write(row)
     
@@ -1800,7 +1840,9 @@ def calculate_metrics(y_true, y_pred, y_confidence=None, method_labels=None):
     return {
         'accuracy': accuracy,
         'report': report,
-        'confusion_matrix': cm
+        'confusion_matrix': cm,
+        'true_labels': true_labels,
+        'pred_labels': pred_labels
     }
 
 
@@ -1846,8 +1888,8 @@ def visualize_results(cluster_df, y_true, y_pred, metrics):
     cm = metrics['confusion_matrix']
     
     # Determine labels dynamically
-    unique_true = sorted(set(y_true))
-    unique_pred = sorted(set(y_pred))
+    unique_true = metrics.get('true_labels', sorted(set(y_true)))
+    unique_pred = metrics.get('pred_labels', [0, 1, 2])
     class_names = ['Normal', 'Non-Normal', 'Anomaly']
     
     true_labels = [class_names[i] for i in unique_true]
@@ -2319,7 +2361,7 @@ def fast_cluster_assignment_faiss(training_embeddings, training_cluster_labels,
         batch_size: Process test data in batches (memory efficient)
     
     Returns:
-        test_cluster_labels: Cluster assignment for test data
+        dict with keys: labels, distances, rejection_threshold
     
     Note:
         - nlist=1024, nprobe=64: Good balance (10-50x speedup, ~98% accuracy)
@@ -2389,12 +2431,24 @@ def fast_cluster_assignment_faiss(training_embeddings, training_cluster_labels,
     
     # Set search parameters
     index.nprobe = nprobe  # How many cells to visit during search
+
+    # Build reference threshold for reject option from in-distribution neighbors.
+    rejection_threshold = None
+    if ENABLE_DISTANCE_REJECTION and len(training_arr) > 2:
+        ref_size = min(REJECTION_REFERENCE_SAMPLE_SIZE, len(training_arr))
+        ref_idx = np.random.choice(len(training_arr), size=ref_size, replace=False)
+        d_ref, _ = index.search(np.ascontiguousarray(training_arr[ref_idx]), 2)
+        # 2nd neighbor approximates non-self nearest distance.
+        d_ref = d_ref[:, 1]
+        rejection_threshold = float(np.quantile(d_ref, REJECTION_QUANTILE) * REJECTION_DISTANCE_MULTIPLIER)
+        print(f"      Distance rejection enabled: threshold={rejection_threshold:.6f}")
     
     print(f"      ✓ Index built! Starting k-NN search...")
     print(f"      Processing {n_test:,} test samples in batches of {batch_size:,}...")
     
     # Search in batches (memory efficient)
     nearest_indices = np.empty(n_test, dtype=np.int64)
+    nearest_distances = np.empty(n_test, dtype=np.float32)
     n_batches = (n_test + batch_size - 1) // batch_size
 
     for i in tqdm(range(0, n_test, batch_size), desc="      Searching", total=n_batches):
@@ -2404,8 +2458,9 @@ def fast_cluster_assignment_faiss(training_embeddings, training_cluster_labels,
             normalize(batch, norm='l2', copy=False)
 
         # Search k=1 nearest neighbors
-        _, indices = index.search(np.ascontiguousarray(batch), 1)
+        dist, indices = index.search(np.ascontiguousarray(batch), 1)
         nearest_indices[i:batch_end] = indices.ravel()
+        nearest_distances[i:batch_end] = dist.ravel().astype(np.float32)
     
     # Map indices to cluster labels
     test_cluster_labels = train_labels[nearest_indices]
@@ -2416,7 +2471,11 @@ def fast_cluster_assignment_faiss(training_embeddings, training_cluster_labels,
     del index, quantizer, training_arr, nearest_indices
     gc.collect()
     
-    return test_cluster_labels
+    return {
+        'labels': test_cluster_labels,
+        'distances': nearest_distances,
+        'rejection_threshold': rejection_threshold,
+    }
 
 
 def fast_cluster_assignment_sklearn_batched(training_embeddings, training_cluster_labels,
@@ -2453,11 +2512,21 @@ def fast_cluster_assignment_sklearn_batched(training_embeddings, training_cluste
     print(f"      Building k-NN index...")
     knn = NearestNeighbors(n_neighbors=1, metric=metric, n_jobs=-1, algorithm='auto')
     knn.fit(training_norm)
+
+    rejection_threshold = None
+    if ENABLE_DISTANCE_REJECTION and len(training_norm) > 2:
+        ref_size = min(REJECTION_REFERENCE_SAMPLE_SIZE, len(training_norm))
+        ref_idx = np.random.choice(len(training_norm), size=ref_size, replace=False)
+        d_ref, _ = knn.kneighbors(training_norm[ref_idx], n_neighbors=2)
+        d_ref = d_ref[:, 1]
+        rejection_threshold = float(np.quantile(d_ref, REJECTION_QUANTILE) * REJECTION_DISTANCE_MULTIPLIER)
+        print(f"      Distance rejection enabled: threshold={rejection_threshold:.6f}")
     
     print(f"      Searching {n_test:,} test samples in batches of {batch_size:,}...")
     
     # Search in batches with progress bar
     nearest_indices = np.empty(n_test, dtype=np.int64)
+    nearest_distances = np.empty(n_test, dtype=np.float32)
     n_batches = (n_test + batch_size - 1) // batch_size
 
     for i in tqdm(range(0, n_test, batch_size), desc="      Searching", total=n_batches):
@@ -2466,14 +2535,19 @@ def fast_cluster_assignment_sklearn_batched(training_embeddings, training_cluste
         if use_cosine:
             normalize(batch, norm='l2', copy=False)
 
-        _, indices = knn.kneighbors(batch)
+        dist, indices = knn.kneighbors(batch)
         nearest_indices[i:batch_end] = indices.ravel()
+        nearest_distances[i:batch_end] = dist.ravel().astype(np.float32)
 
     test_cluster_labels = train_labels[nearest_indices]
     
     print(f"      ✓ Assigned {len(test_cluster_labels):,} test samples!")
     
-    return test_cluster_labels
+    return {
+        'labels': test_cluster_labels,
+        'distances': nearest_distances,
+        'rejection_threshold': rejection_threshold,
+    }
 
 
 # ============================================================================
@@ -2528,6 +2602,7 @@ def main():
         user_choice = input("\n⚠️  Resume from checkpoint? (y/n) [default: y]: ").strip().lower()
         if user_choice in ['', 'y', 'yes']:
             print("\n📂 Loading checkpoint data...")
+            test_cluster_distances = None
             
             # Load checkpoint
             test_cluster_labels = np.load(CHECKPOINT_STEP6, allow_pickle=True)
@@ -2563,6 +2638,7 @@ def main():
     # STEP 1-7: Run if no checkpoint or user chose restart
     # ========================================================================
     if not goto_step_8:
+        test_cluster_distances = None
         # ====================================================================
         # STEP 1: Load training cluster results (UNSUPERVISED)
         # ====================================================================
@@ -2780,9 +2856,11 @@ def main():
             
         else:  # dbscan
             print("\nFor DBSCAN, using k-NN to assign test samples to nearest cluster...")
+            test_cluster_distances = None
+            rejection_threshold = None
             
             # Try FAISS IVF first (10-100x faster, ~98% accuracy)
-            test_cluster_labels = fast_cluster_assignment_faiss(
+            faiss_result = fast_cluster_assignment_faiss(
                 training_embeddings, 
                 training_cluster_labels,
                 test_embeddings,
@@ -2793,15 +2871,35 @@ def main():
             )
             
             # Fallback to batched sklearn if FAISS failed
-            if test_cluster_labels is None:
+            if faiss_result is None:
                 print("\n   ⚠️ FAISS unavailable or failed, using batched sklearn (slower but exact)...")
-                test_cluster_labels = fast_cluster_assignment_sklearn_batched(
+                sklearn_result = fast_cluster_assignment_sklearn_batched(
                     training_embeddings,
                     training_cluster_labels,
                     test_embeddings,
                     use_cosine=USE_COSINE_DISTANCE,
                     batch_size=10000  # Smaller batches for sklearn
                 )
+                test_cluster_labels = sklearn_result['labels']
+                test_cluster_distances = sklearn_result['distances']
+                rejection_threshold = sklearn_result['rejection_threshold']
+            else:
+                test_cluster_labels = faiss_result['labels']
+                test_cluster_distances = faiss_result['distances']
+                rejection_threshold = faiss_result['rejection_threshold']
+
+            if ENABLE_DISTANCE_REJECTION and rejection_threshold is not None and test_cluster_distances is not None:
+                reject_mask = test_cluster_distances > rejection_threshold
+                n_rejected = int(np.sum(reject_mask))
+                if n_rejected > 0:
+                    test_cluster_labels = np.array(test_cluster_labels, copy=True)
+                    test_cluster_labels[reject_mask] = -1
+                    print(
+                        f"   ⚠️ Distance rejection applied: {n_rejected:,}/{len(test_cluster_labels):,} "
+                        f"samples mapped to cluster -1 (noise/anomaly)"
+                    )
+                else:
+                    print("   ✓ Distance rejection active, no sample exceeded threshold")
             
             print(f"   ✓ Cluster assignment complete!")
             print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples to clusters")
@@ -3004,6 +3102,7 @@ def main():
         'true_label': test_gt_labels,
         'predicted_label': predictions,
         'confidence': confidence,
+        'nn_distance': test_cluster_distances if test_cluster_distances is not None else np.full(len(test_gt_labels), np.nan),
         'method': methods,
         'correct': (test_gt_labels == predictions).astype(int)
     })
