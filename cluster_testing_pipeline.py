@@ -371,6 +371,56 @@ print("✓ Results saved", file=sys.stderr)
 # HELPER FUNCTIONS
 # ============================================================================
 
+def sample_non_noise_indices(cluster_labels, non_noise_mask, sample_size, seed=42):
+    """
+    Sample non-noise indices efficiently for very large arrays.
+
+    For high non-noise ratios, avoid building full `np.flatnonzero(non_noise_mask)`
+    first (which can be slow and memory-heavy on 100M+ rows). Falls back to the
+    flatnonzero path when needed.
+    """
+    rng = np.random.default_rng(seed)
+    total_n = len(cluster_labels)
+    n_non_noise = int(non_noise_mask.sum())
+
+    if n_non_noise <= sample_size:
+        return np.flatnonzero(non_noise_mask)
+
+    if n_non_noise == total_n:
+        return np.sort(rng.choice(total_n, sample_size, replace=False))
+
+    ratio = n_non_noise / max(total_n, 1)
+
+    # Fast path for huge datasets with very small noise proportion.
+    if total_n >= 10_000_000 and ratio >= 0.95:
+        target_pool = int(sample_size * 1.5)
+        collected = []
+        collected_n = 0
+
+        for _ in range(30):
+            need = target_pool - collected_n
+            if need <= 0:
+                break
+
+            draw = max(sample_size, int((need / max(ratio, 1e-9)) * 1.2))
+            draw = min(draw, total_n)
+
+            candidate = rng.integers(0, total_n, size=draw, dtype=np.int64)
+            valid = candidate[cluster_labels[candidate] != -1]
+            if len(valid) > 0:
+                collected.append(valid)
+                collected_n += len(valid)
+
+        if collected_n > 0:
+            pool = np.unique(np.concatenate(collected))
+            if len(pool) >= sample_size:
+                return np.sort(rng.choice(pool, sample_size, replace=False))
+
+        print("   ⚠️ Fast sampler pool not enough, fallback to flatnonzero...")
+
+    non_noise_indices = np.flatnonzero(non_noise_mask)
+    return np.sort(rng.choice(non_noise_indices, sample_size, replace=False))
+
 def load_kmeans_model_compat(model_path: Path):
     """
     Load K-Means model with compatibility fallback for NumPy RNG pickle format
@@ -1165,12 +1215,12 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
 
             if n_non_noise > effective_sample_size:
                 print(f"   Sampling {effective_sample_size:,} non-noise points from {n_non_noise:,} for silhouette...")
-                # If there are no noise points, avoid building a huge index array
-                if n_non_noise == len(cluster_labels):
-                    sampled_indices = np.random.choice(len(cluster_labels), effective_sample_size, replace=False)
-                else:
-                    non_noise_indices = np.flatnonzero(non_noise_mask)
-                    sampled_indices = np.random.choice(non_noise_indices, effective_sample_size, replace=False)
+                sampled_indices = sample_non_noise_indices(
+                    cluster_labels,
+                    non_noise_mask,
+                    effective_sample_size,
+                    seed=42
+                )
             else:
                 print(f"   Using all {n_non_noise:,} non-noise points for silhouette")
                 if n_non_noise == len(cluster_labels):
@@ -1178,8 +1228,11 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
                 else:
                     sampled_indices = np.flatnonzero(non_noise_mask)
 
+            print(f"   Preparing sampled labels ({len(sampled_indices):,})...")
             sample_labels = cluster_labels[sampled_indices]
+            print(f"   Loading sampled embeddings ({len(sampled_indices):,}) from source array...")
             sample_embeddings = embeddings[sampled_indices]
+            print("   ✓ Sampled embeddings loaded")
 
             # Silhouette requires >=2 clusters in sampled data
             n_unique_sample_clusters = len(np.unique(sample_labels))
