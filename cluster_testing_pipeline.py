@@ -101,12 +101,12 @@ else:  # dbscan
 TESTING_SETS = [
     {
         'name': 'normal',  # Ground truth: ALL = NORMAL (0)
-        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_normal_embeddings.npy"),
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_thunderbird_normal_embeddings.npy"),
         'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_thunderbird_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
     },
     {
         'name': 'nonnormal',  # Ground truth: ALL = NON-NORMAL (1)
-        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_non_normal_embeddings.npy"),
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_thunderbird_non_normal_embeddings.npy"),
         'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_thunderbird_non_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
     }
 ]
