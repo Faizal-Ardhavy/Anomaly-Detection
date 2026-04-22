@@ -68,7 +68,7 @@ warnings.filterwarnings('ignore')
 
 # Dataset & Algorithm Selection
 DATASET = "Thunderbird"  # "BGL" or "Thunderbird"
-ALGORITHM = "dbscan"  # "kmeans" or "dbscan"
+ALGORITHM = "kmeans"  # "kmeans" or "dbscan"
 EMBEDDING_TYPE = "pca256"  # "base", "pca256", or "pca128"
 
 # Template paths for 3-way ground truth classification
@@ -86,9 +86,9 @@ else:  # Thunderbird
 
 # Path to training results
 if ALGORITHM == "kmeans":
-    TRAINED_MODEL_PATH = Path("kmeans/thunderbird_k_params/model_kmeans_log.pkl")
-    TRAINING_LABELS_PATH = Path("kmeans/thunderbird_k_params/cluster_labels.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
+    TRAINED_MODEL_PATH = Path("kmeans/thunderbird_pca256_k_params/model_kmeans_log.pkl")
+    TRAINING_LABELS_PATH = Path("kmeans/thunderbird_pca256_k_params/cluster_labels.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_thunderbird_pca256_embeddings.npy")
 else:  # dbscan
     TRAINING_LABELS_PATH = Path("dbscan/thunderbird_pca256_model/dbscan_labels.npy")
     TRAINING_CONFIG_PATH = Path("dbscan/thunderbird_pca256_model/dbscan_config.npy")
