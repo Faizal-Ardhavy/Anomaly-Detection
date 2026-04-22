@@ -88,11 +88,11 @@ else:  # Thunderbird
 if ALGORITHM == "kmeans":
     TRAINED_MODEL_PATH = Path("kmeans/bgl_pca256_k_params/model_kmeans_log.pkl")
     TRAINING_LABELS_PATH = Path("kmeans/bgl_pca256_k_params/cluster_labels.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_bgl_pca256_embeddings.npy")
 else:  # dbscan
     TRAINING_LABELS_PATH = Path("dbscan/bgl_pca256_model/dbscan_labels.npy")
     TRAINING_CONFIG_PATH = Path("dbscan/bgl_pca256_model/dbscan_config.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_bgl_pca256_embeddings.npy")
 
 # Path to testing data - MULTIPLE SETS (Ground truth based on set name!)
 # Each testing set should have embeddings file and a name indicating its class
