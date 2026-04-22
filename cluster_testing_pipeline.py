@@ -68,7 +68,7 @@ warnings.filterwarnings('ignore')
 
 # Dataset & Algorithm Selection
 DATASET = "BGL"  # "BGL" or "Thunderbird"
-ALGORITHM = "kmeans"  # "kmeans" or "dbscan"
+ALGORITHM = "dbscan"  # "kmeans" or "dbscan"
 EMBEDDING_TYPE = "pca256"  # "base", "pca256", or "pca128"
 
 # Template paths for 3-way ground truth classification
