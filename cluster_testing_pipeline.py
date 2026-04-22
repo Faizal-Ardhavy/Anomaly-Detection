@@ -121,7 +121,7 @@ TESTING_SETS = [
 # TESTING_METADATA_TSV = Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/testing_bgl_meta.tsv")
 
 # Semi-supervised cluster labeling strategy
-USE_METADATA_LABELING = False        # Use training metadata to label clusters (RECOMMENDED)
+USE_METADATA_LABELING = True        # Use training metadata to label clusters (RECOMMENDED)
 METADATA_SAMPLE_SIZE = 1000         # Samples per cluster for metadata check (or full if smaller)
 MAJORITY_THRESHOLD = 0.70           # ≥70% majority → assign that class label
 
