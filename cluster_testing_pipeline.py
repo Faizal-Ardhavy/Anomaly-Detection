@@ -125,23 +125,6 @@ USE_METADATA_LABELING = True        # Use training metadata to label clusters (R
 METADATA_SAMPLE_SIZE = 1000         # Samples per cluster for metadata check (or full if smaller)
 MAJORITY_THRESHOLD = 0.70           # ≥70% majority → assign that class label
 
-# Metadata class source
-# - "metadata_column": infer NORMAL/NON-NORMAL directly from metadata TSV column values
-# - "template_label_map": map metadata 'label' tokens using template files (legacy behavior)
-METADATA_CLASS_SOURCE = "metadata_column"
-METADATA_CLASS_COLUMN_CANDIDATES = [
-    "level", "severity", "class", "ground_truth", "gt_label",
-    "is_anomaly", "anomaly", "status"
-]
-METADATA_NORMAL_TOKENS = {
-    "NORMAL", "INFO", "INFORMATION", "OK", "SUCCESS", "0", "FALSE", "NO", "N", "-"
-}
-METADATA_NONNORMAL_TOKENS = {
-    "NONNORMAL", "NON-NORMAL", "ANOMALY", "ANOMALOUS", "ABNORMAL",
-    "WARN", "WARNING", "ERROR", "ERR", "FATAL", "CRITICAL", "ALERT", "EMERGENCY",
-    "1", "TRUE", "YES", "Y"
-}
-
 # Robust metadata-labeling safeguards (helps avoid all-normal collapse)
 FORCE_DBSCAN_NOISE_AS_ANOMALY = True
 MIN_METADATA_EVIDENCE = 30          # Minimum known-label samples before trusting metadata vote
@@ -406,63 +389,6 @@ def normalize_label_token(value) -> str:
     if pd.isna(value):
         return ''
     return str(value).strip().upper()
-
-
-def metadata_token_to_binary_code(value) -> int:
-    """Map metadata token to binary class code: 0=normal, 1=non-normal, 2=unknown."""
-    token = normalize_label_token(value)
-    if token in METADATA_NORMAL_TOKENS:
-        return 0
-    if token in METADATA_NONNORMAL_TOKENS:
-        return 1
-    return 2
-
-
-def detect_metadata_class_column(tsv_path: Path, sample_rows: int = 50000):
-    """
-    Detect the best metadata column for direct NORMAL/NON-NORMAL mapping.
-    Returns: (column_name or None, recognized_coverage_ratio)
-    """
-    if not tsv_path.exists():
-        return None, 0.0
-
-    try:
-        head = pd.read_csv(tsv_path, sep='\t', nrows=0)
-    except Exception:
-        return None, 0.0
-
-    cols = list(head.columns)
-    norm_to_real = {normalize_label_token(c): c for c in cols}
-    candidate_cols = []
-    for c in METADATA_CLASS_COLUMN_CANDIDATES:
-        real = norm_to_real.get(normalize_label_token(c))
-        if real and real not in candidate_cols:
-            candidate_cols.append(real)
-
-    if not candidate_cols:
-        return None, 0.0
-
-    try:
-        sample_df = pd.read_csv(tsv_path, sep='\t', usecols=candidate_cols, nrows=sample_rows, dtype=str)
-    except Exception:
-        # If sampling fails, still return first candidate column name.
-        return candidate_cols[0], 0.0
-
-    best_col = None
-    best_cov = -1.0
-    for col in candidate_cols:
-        if col not in sample_df.columns:
-            continue
-        mapped = sample_df[col].map(metadata_token_to_binary_code)
-        recognized = int((mapped != 2).sum())
-        cov = recognized / max(len(mapped), 1)
-        if cov > best_cov:
-            best_cov = cov
-            best_col = col
-
-    if best_col is None:
-        return None, 0.0
-    return best_col, max(best_cov, 0.0)
 
 def sample_non_noise_indices(cluster_labels, non_noise_mask, sample_size, seed=42):
     """
@@ -909,24 +835,15 @@ def _load_metadata_chunked(tsv_path: Path, normal_events: set, nonnormal_events:
     return labels_array
 
 
-def build_metadata_label_memmap(tsv_path: Path,
-                                normal_events: set = None,
-                                nonnormal_events: set = None,
-                                memmap_path: Path = None,
-                                chunksize: int = 1_000_000,
-                                label_source: str = "template_label_map",
-                                class_column: str = None):
+def build_metadata_label_memmap(tsv_path: Path, normal_events: set, nonnormal_events: set,
+                                memmap_path: Path = None, chunksize: int = 1_000_000):
     """
-        Create (or reuse) a disk-backed uint8 memmap with one label per metadata row:
+    Create (or reuse) a disk-backed uint8 memmap with one label per metadata row:
       0 = NORMAL, 1 = NON-NORMAL, 2 = ANOMALY/unknown
 
     This function is streaming-friendly and avoids loading the whole TSV into RAM.
     It does two streaming passes (count lines, then parse by chunks) but uses minimal memory.
-        Returns a numpy memmap-like array for fast index access.
-
-        label_source:
-            - "metadata_column": derive labels from a metadata class column (preferred)
-            - "template_label_map": derive labels by mapping metadata `label` token via templates
+    Returns a numpy memmap-like array for fast index access.
     """
     import os, json
     from numpy.lib.format import open_memmap
@@ -940,17 +857,11 @@ def build_metadata_label_memmap(tsv_path: Path,
 
     tsv_mtime = os.path.getmtime(tsv_path)
 
-    class_column_key = normalize_label_token(class_column) if class_column else None
-
-    # Reuse existing memmap if metadata and mapping config unchanged
+    # Reuse existing memmap if metadata unchanged
     if memmap_path.exists() and meta_path.exists():
         try:
             meta = json.loads(meta_path.read_text())
-            if (
-                meta.get('tsv_mtime') == tsv_mtime
-                and meta.get('label_source') == label_source
-                and meta.get('class_column') == class_column_key
-            ):
+            if meta.get('tsv_mtime') == tsv_mtime:
                 print(f"   ✓ Reusing existing metadata labels memmap: {memmap_path.name}")
                 return open_memmap(memmap_path, mode='r')
         except Exception:
@@ -964,52 +875,29 @@ def build_metadata_label_memmap(tsv_path: Path,
         for chunk in iter(lambda: f.read(n_bytes), b''):
             total_lines += chunk.count(b'\n')
 
-    # Detect columns from header
+    # Detect header presence and label column name (cheap sample)
     label_col = None
-    header_cols = []
+    header_rows = 0
     try:
         df_head = pd.read_csv(tsv_path, sep='\t', nrows=0)
-        header_cols = list(df_head.columns)
-        norm_to_real = {normalize_label_token(c): c for c in header_cols}
-
-        if label_source == "metadata_column":
-            if class_column is None:
-                detected_col, coverage = detect_metadata_class_column(tsv_path)
-                class_column = detected_col
-                if class_column:
-                    print(f"   ✓ Metadata class column detected: {class_column} (coverage~{coverage*100:.1f}%)")
-            if class_column is not None:
-                label_col = norm_to_real.get(normalize_label_token(class_column), class_column)
-        else:
-            for col in header_cols:
-                if str(col).strip().lower() == 'label':
-                    label_col = col
-                    break
+        for col in df_head.columns:
+            if str(col).strip().lower() == 'label':
+                label_col = col
+                break
     except Exception:
-        if label_source != "metadata_column":
-            # fallback: inspect first 10 text lines for legacy label column
-            with open(tsv_path, 'r', encoding='utf-8', errors='replace') as f:
-                for _ in range(10):
-                    line = f.readline()
-                    if not line:
-                        break
-                    if '\t' in line and 'label' in line.lower():
-                        label_col = 'label'
-                        break
+        # fallback: inspect first 10 text lines
+        with open(tsv_path, 'r', encoding='utf-8', errors='replace') as f:
+            for i in range(10):
+                line = f.readline()
+                if not line:
+                    break
+                if '\t' in line and 'label' in line.lower():
+                    label_col = 'label'
+                    break
 
-    if label_source == "metadata_column" and not label_col:
-        raise ValueError(
-            "Cannot detect metadata class column. "
-            f"Candidates={METADATA_CLASS_COLUMN_CANDIDATES}. "
-            "Set METADATA_CLASS_COLUMN_CANDIDATES to match your TSV headers."
-        )
-
-    if label_source == "template_label_map" and (not normal_events or not nonnormal_events):
-        raise ValueError("Template mapping mode requires normal_events and nonnormal_events sets")
-
-    # Compute effective data rows (subtract header when header exists)
-    if header_cols:
-        data_rows = max(total_lines - 1, 0)
+    # Compute effective data rows (subtract header if detected)
+    if label_col is not None:
+        data_rows = total_lines - 1
     else:
         data_rows = total_lines
 
@@ -1019,25 +907,22 @@ def build_metadata_label_memmap(tsv_path: Path,
     print(f"   ⚙️ Creating memmap ({memmap_path.name}) with dtype=uint8")
     mm = open_memmap(memmap_path, mode='w+', dtype='uint8', shape=(data_rows,))
 
-    # Stream-parse selected column in chunks and populate memmap
+    # Stream-parse label column in chunks and populate memmap
     read_cols = [label_col] if label_col is not None else None
     pos = 0
     chunk_iter = pd.read_csv(tsv_path, sep='\t', usecols=read_cols, dtype=str, chunksize=chunksize)
     for chunk_num, chunk in enumerate(chunk_iter, 1):
         if label_col is None:
-            # If no header column, assume first column (legacy path)
+            # If no header/label column, assume first column
             series = chunk.iloc[:, 0].map(normalize_label_token)
         else:
-            series = chunk[label_col]
+            series = chunk[label_col].map(normalize_label_token)
 
-        if label_source == "metadata_column":
-            arr = series.map(metadata_token_to_binary_code).astype('uint8').to_numpy(copy=False)
-        else:
-            series = series.map(normalize_label_token).fillna('')
-            isin_normal = series.isin(normal_events)
-            isin_nonnormal = series.isin(nonnormal_events)
-            arr = np.where(isin_normal, 0, np.where(isin_nonnormal, 1, 2)).astype('uint8')
-
+        # Vectorized mapping: NORMAL=0, NON-NORMAL=1, else 2
+        series = series.fillna('')
+        isin_normal = series.isin(normal_events)
+        isin_nonnormal = series.isin(nonnormal_events)
+        arr = np.where(isin_normal, 0, np.where(isin_nonnormal, 1, 2)).astype('uint8')
         L = len(arr)
         mm[pos:pos+L] = arr
         pos += L
@@ -1049,12 +934,7 @@ def build_metadata_label_memmap(tsv_path: Path,
 
     # Save metadata for reuse
     try:
-        meta = {
-            'tsv_mtime': tsv_mtime,
-            'n_rows': int(data_rows),
-            'label_source': label_source,
-            'class_column': class_column_key,
-        }
+        meta = {'tsv_mtime': tsv_mtime, 'n_rows': int(data_rows)}
         meta_path.write_text(json.dumps(meta))
     except Exception:
         pass
@@ -1296,130 +1176,57 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
     normal_events = None
     nonnormal_events = None
     metadata_labels = None
-    metadata_mode = None  # "metadata_column" | "template_label_map"
-    metadata_class_col = None
-
-    if USE_METADATA_LABELING and metadata_tsv_path:
+    
+    if USE_METADATA_LABELING and metadata_tsv_path and normal_template_path and nonnormal_template_path:
         print(f"\n📖 Loading training metadata for cluster labeling...")
-
+        
+        # Load templates
+        print(f"   Loading templates...")
+        normal_events = load_template_events(normal_template_path)
+        nonnormal_events = load_template_events(nonnormal_template_path)
+        print(f"   Template coverage: NORMAL={len(normal_events):,}, NON-NORMAL={len(nonnormal_events):,}")
+        if len(normal_events) <= 1 or len(nonnormal_events) <= 1:
+            print("   ⚠️ Very low template cardinality detected. Check template format and label column parsing.")
+        
         # Load metadata TSV
         print(f"   Loading metadata TSV: {metadata_tsv_path.name}")
         if not metadata_tsv_path.exists():
             print(f"   ⚠️ Metadata file not found, falling back to size-based classification")
         else:
-            if METADATA_CLASS_SOURCE == "metadata_column":
-                metadata_mode = "metadata_column"
-                metadata_class_col, coverage = detect_metadata_class_column(metadata_tsv_path)
-                if metadata_class_col is None:
-                    print(
-                        "   ❌ Could not detect metadata class column. "
-                        "Update METADATA_CLASS_COLUMN_CANDIDATES to match your TSV header."
-                    )
+            # Use streaming memmap ONLY for Thunderbird (huge dataset); keep BGL on legacy path
+            if DATASET.lower() == 'thunderbird':
+                try:
+                    # Build or reuse a compact uint8 memmap with per-row labels (0=Normal,1=NonNormal,2=Anomaly)
+                    metadata_labels = build_metadata_label_memmap(metadata_tsv_path, normal_events, nonnormal_events)
+                    print(f"   ✓ Metadata labels memmap shape: {metadata_labels.shape}")
                     metadata_df = None
-                    metadata_labels = None
-                else:
-                    print(
-                        f"   ✓ Using metadata class column: {metadata_class_col} "
-                        f"(recognized coverage ~{coverage*100:.1f}%)"
-                    )
-
-                    # Use memmap for very large datasets, plain column load for smaller ones.
-                    if DATASET.lower() == 'thunderbird':
-                        try:
-                            metadata_labels = build_metadata_label_memmap(
-                                metadata_tsv_path,
-                                memmap_path=CHECKPOINT_DIR / (metadata_tsv_path.name + '.labels.npy'),
-                                chunksize=1_000_000,
-                                label_source="metadata_column",
-                                class_column=metadata_class_col,
-                            )
-                            print(f"   ✓ Metadata labels memmap shape: {metadata_labels.shape}")
-                            metadata_df = None
-                        except Exception as e:
-                            print(f"   ⚠️ Streaming memmap build failed: {e}. Falling back to in-memory column load.")
-                            try:
-                                metadata_df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=[metadata_class_col], dtype=str)
-                                print(f"   ✓ Loaded {len(metadata_df):,} metadata rows (column: {metadata_class_col})")
-                                metadata_labels = None
-                            except Exception as e2:
-                                print(f"   ❌ Failed to load metadata class column: {e2}. Falling back to size-based classification")
-                                metadata_df = None
-                                metadata_labels = None
-                    else:
-                        try:
-                            metadata_df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=[metadata_class_col], dtype=str)
-                            print(f"   ✓ Loaded {len(metadata_df):,} metadata rows (column: {metadata_class_col})")
-                            metadata_labels = None
-                        except Exception as e:
-                            print(f"   ⚠️ In-memory column load failed ({e}), trying streaming memmap")
-                            try:
-                                metadata_labels = build_metadata_label_memmap(
-                                    metadata_tsv_path,
-                                    memmap_path=CHECKPOINT_DIR / (metadata_tsv_path.name + '.labels.npy'),
-                                    chunksize=1_000_000,
-                                    label_source="metadata_column",
-                                    class_column=metadata_class_col,
-                                )
-                                print(f"   ✓ Loaded labels via streaming memmap: {len(metadata_labels):,} rows")
-                                metadata_df = None
-                            except Exception as e2:
-                                print(f"   ❌ Failed to load metadata via streaming memmap: {e2}. Falling back to size-based classification")
-                                metadata_df = None
-                                metadata_labels = None
+                except Exception as e:
+                    print(f"   ⚠️ Streaming memmap build failed: {e}. Falling back to safe chunked load.")
+                    try:
+                        metadata_df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'], dtype=str)
+                        print(f"   ✓ Loaded {len(metadata_df):,} metadata rows (labels only)")
+                        metadata_labels = None
+                    except Exception as e2:
+                        print(f"   ❌ Failed to load metadata TSV: {e2}. Falling back to size-based classification")
+                        metadata_df = None
+                        metadata_labels = None
             else:
-                metadata_mode = "template_label_map"
-
-                # Legacy template-based mapping mode
-                if not (normal_template_path and nonnormal_template_path):
-                    print("   ❌ Template paths are required for template_label_map mode")
-                    metadata_df = None
+                # BGL or other datasets: keep legacy behavior (try to load label column into memory first)
+                try:
+                    metadata_df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'], dtype=str)
+                    print(f"   ✓ Loaded {len(metadata_df):,} metadata rows (labels only, legacy mode)")
                     metadata_labels = None
-                else:
-                    print(f"   Loading templates...")
-                    normal_events = load_template_events(normal_template_path)
-                    nonnormal_events = load_template_events(nonnormal_template_path)
-                    print(f"   Template coverage: NORMAL={len(normal_events):,}, NON-NORMAL={len(nonnormal_events):,}")
-                    if len(normal_events) <= 1 or len(nonnormal_events) <= 1:
-                        print("   ⚠️ Very low template cardinality detected. Check template format and label column parsing.")
-
-                    if DATASET.lower() == 'thunderbird':
-                        try:
-                            metadata_labels = build_metadata_label_memmap(
-                                metadata_tsv_path,
-                                normal_events=normal_events,
-                                nonnormal_events=nonnormal_events,
-                                memmap_path=CHECKPOINT_DIR / (metadata_tsv_path.name + '.labels.npy'),
-                                chunksize=1_000_000,
-                                label_source="template_label_map",
-                            )
-                            print(f"   ✓ Metadata labels memmap shape: {metadata_labels.shape}")
-                            metadata_df = None
-                        except Exception as e:
-                            print(f"   ⚠️ Streaming memmap build failed: {e}. Falling back to safe chunked load.")
-                            try:
-                                metadata_df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'], dtype=str)
-                                print(f"   ✓ Loaded {len(metadata_df):,} metadata rows (labels only)")
-                                metadata_labels = None
-                            except Exception as e2:
-                                print(f"   ❌ Failed to load metadata TSV: {e2}. Falling back to size-based classification")
-                                metadata_df = None
-                                metadata_labels = None
-                    else:
-                        try:
-                            metadata_df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'], dtype=str)
-                            print(f"   ✓ Loaded {len(metadata_df):,} metadata rows (labels only, legacy mode)")
-                            metadata_labels = None
-                        except Exception as e:
-                            print(f"   ⚠️ Loading label-only failed ({e}), trying chunked streaming as fallback")
-                            try:
-                                labels_array = _load_metadata_chunked(metadata_tsv_path, normal_events, nonnormal_events, chunksize=1000000)
-                                metadata_labels = labels_array
-                                metadata_df = None
-                                print(f"   ✓ Loaded labels via chunked streaming: {len(labels_array):,} rows")
-                            except Exception as e2:
-                                print(f"   ❌ Failed to load metadata via chunked streaming: {e2}. Falling back to size-based classification")
-                                metadata_df = None
-                                metadata_labels = None
+                except Exception as e:
+                    print(f"   ⚠️ Loading label-only failed ({e}), trying chunked streaming as fallback")
+                    try:
+                        labels_array = _load_metadata_chunked(metadata_tsv_path, normal_events, nonnormal_events, chunksize=1000000)
+                        metadata_labels = labels_array
+                        metadata_df = None
+                        print(f"   ✓ Loaded labels via chunked streaming: {len(labels_array):,} rows")
+                    except Exception as e2:
+                        print(f"   ❌ Failed to load metadata via chunked streaming: {e2}. Falling back to size-based classification")
+                        metadata_df = None
+                        metadata_labels = None
     
     # Calculate silhouette scores if embeddings provided
     overall_silhouette = None
@@ -1506,7 +1313,7 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
         labeling_reason = None
         
         # METADATA-BASED LABELING (if enabled and data available)
-        if (metadata_df is not None or metadata_labels is not None):
+        if (metadata_df is not None or metadata_labels is not None) and normal_events and nonnormal_events:
             if cluster_id == -1 and FORCE_DBSCAN_NOISE_AS_ANOMALY:
                 cluster_label = 2
                 label_name = 'ANOMALY'
@@ -1531,18 +1338,11 @@ def analyze_cluster_characteristics(cluster_labels, embeddings=None,
                 elif metadata_df is not None:
                     for idx in sample_indices:
                         if idx < len(metadata_df):  # Safety check
-                            if metadata_mode == "metadata_column" and metadata_class_col in metadata_df.columns:
-                                code = metadata_token_to_binary_code(metadata_df.iloc[idx][metadata_class_col])
-                                if code == 0:
-                                    count_normal += 1
-                                elif code == 1:
-                                    count_nonnormal += 1
-                            else:
-                                event_label = normalize_label_token(metadata_df.iloc[idx]['label'])
-                                if event_label in normal_events:
-                                    count_normal += 1
-                                elif event_label in nonnormal_events:
-                                    count_nonnormal += 1
+                            event_label = normalize_label_token(metadata_df.iloc[idx]['label'])
+                            if event_label in normal_events:
+                                count_normal += 1
+                            elif event_label in nonnormal_events:
+                                count_nonnormal += 1
 
                 total = count_normal + count_nonnormal
 
