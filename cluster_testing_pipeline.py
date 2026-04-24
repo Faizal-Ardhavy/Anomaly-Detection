@@ -86,13 +86,13 @@ else:  # Thunderbird
 
 # Path to training results
 if ALGORITHM == "kmeans":
-    TRAINED_MODEL_PATH = Path("kmeans/thunderbird_k_params/model_kmeans_log.pkl")
-    TRAINING_LABELS_PATH = Path("kmeans/thunderbird_k_params/cluster_labels.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
+    TRAINED_MODEL_PATH = Path("kmeans/bgl_base_k_params/model_kmeans_log.pkl")
+    TRAINING_LABELS_PATH = Path("kmeans/bgl_base_k_params/cluster_labels.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy")
 else:  # dbscan
-    TRAINING_LABELS_PATH = Path("dbscan/thunderbird_base_model/dbscan_labels.npy")
-    TRAINING_CONFIG_PATH = Path("dbscan/thunderbird_base_model/dbscan_config.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
+    TRAINING_LABELS_PATH = Path("dbscan/bgl_base_model/dbscan_labels.npy")
+    TRAINING_CONFIG_PATH = Path("dbscan/bgl_base_model/dbscan_config.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy")
 
 # Path to testing data - MULTIPLE SETS (Ground truth based on set name!)
 # Each testing set should have embeddings file and a name indicating its class
@@ -101,15 +101,16 @@ else:  # dbscan
 TESTING_SETS = [
     {
         'name': 'normal',  # Ground truth: ALL = NORMAL (0)
-        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_thunderbird_normal_embeddings.npy"),
-        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_thunderbird_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_normal_embeddings.npy"),
+        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
     },
     {
         'name': 'nonnormal',  # Ground truth: ALL = NON-NORMAL (1)
-        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_thunderbird_non_normal_embeddings.npy"),
-        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_thunderbird_non_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_non_normal_embeddings.npy"),
+        'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_bgl_non_normal_meta.tsv")  # Optional, only needed if you want to do template-based analysis
     }
 ]
+
 
 # LEGACY: Single testing file support (if you still use old format)
 # Uncomment below and comment TESTING_SETS if you want old behavior
@@ -122,7 +123,7 @@ TESTING_SETS = [
 
 # Semi-supervised cluster labeling strategy
 USE_METADATA_LABELING = True        # Use training metadata to label clusters (RECOMMENDED)
-METADATA_SAMPLE_SIZE = 1000         # Samples per cluster for metadata check (or full if smaller)
+METADATA_SAMPLE_SIZE = 10000         # Samples per cluster for metadata check (or full if smaller)
 MAJORITY_THRESHOLD = 0.70           # ≥70% majority → assign that class label
 
 # Robust metadata-labeling safeguards (helps avoid all-normal collapse)
