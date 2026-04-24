@@ -67,7 +67,7 @@ warnings.filterwarnings('ignore')
 # ============================================================================
 
 # Dataset & Algorithm Selection
-DATASET = "Thunderbird"  # "BGL" or "Thunderbird"
+DATASET = "BGL"  # "BGL" or "Thunderbird"
 ALGORITHM = "dbscan"  # "kmeans" or "dbscan"
 EMBEDDING_TYPE = "base"  # "base", "pca256", or "pca128"
 
