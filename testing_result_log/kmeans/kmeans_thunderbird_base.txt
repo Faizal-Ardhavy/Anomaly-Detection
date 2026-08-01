@@ -1,0 +1,404 @@
+======================================================================
+COMPREHENSIVE CLUSTER TESTING PIPELINE
+2-CLASS GROUND TRUTH + 3-CLASS PREDICTION
+======================================================================
+
+Dataset: Thunderbird
+Algorithm: kmeans
+Embedding: base
+Output directory: testing_results/thunderbird_kmeans_base
+Checkpoint directory: testing_results/thunderbird_kmeans_base/checkpoints
+
+🔄 ====================================================================
+CHECKPOINT DETECTED - RESUME FROM STEP 8
+======================================================================
+
+✅ Found existing checkpoint files:
+   - step6_test_cluster_labels.npy
+   - step7_predictions.npy
+   - step7_confidence.npy
+   - step7_methods.npy
+   - checkpoint_metadata.pkl
+
+⚠️  Resume from checkpoint? (y/n) [default: y]: n
+
+🔄 User chose to restart from beginning...
+
+======================================================================
+STEP 1: LOAD TRAINING CLUSTER RESULTS (UNSUPERVISED)
+======================================================================
+NOTE: No longer loading template-based labels - using pure clustering
+
+Loading cluster labels: kmeans/thunderbird_k_params/cluster_labels.npy
+   ✓ Loaded 208,105,405 cluster assignments
+
+Clusters found: 92
+Noise points: 0 (0.00%)
+
+======================================================================
+STEP 2: LOAD TRAINING EMBEDDINGS (for silhouette + k-NN)
+======================================================================
+
+Loading training embeddings: /media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy
+   ⚠️ File may contain pickled/unknown format — attempting fallbacks:
+   ⚠️ allow_pickle load failed: Failed to interpret file PosixPath('/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy') as a pickle
+   🔎 Trying to interpret file as raw float32 binary (no .npy header)
+      possible shape: (208105405,768) based on file size
+      possible shape: (416210810,384) based on file size
+      possible shape: (624316215,256) based on file size
+      possible shape: (1248632430,128) based on file size
+   ✓ Loading as raw memmap with shape=(208105405,768)
+   ✓ Shape: (208105405, 768)
+
+======================================================================
+STEP 3: ANALYZE CLUSTER CHARACTERISTICS (+ Silhouette Score)
+======================================================================
+
+🔍 Analyzing cluster characteristics (SEMI-SUPERVISED: Metadata-based labeling)...
+   Metadata labeling mode: robust majority voting
+      MAJORITY_THRESHOLD=70%
+      NORMAL_STRONG_THRESHOLD=85%
+      NONNORMAL_PRESENCE_THRESHOLD=15%
+      MIN_METADATA_EVIDENCE=30
+
+📖 Loading training metadata for cluster labeling...
+   Loading templates...
+   Loading template: thunderbird_normal_template.txt
+   ✓ Found 1 unique Labels (column: Label)
+   Loading template: thunderbird_nonNormal_template.txt
+   ✓ Found 17 unique Labels (header at line 3)
+   Template coverage: NORMAL=1, NON-NORMAL=17
+   ⚠️ Very low template cardinality detected. Check template format and label column parsing.
+   Loading metadata TSV: after_preprocessed_thunderbird_meta.tsv
+   ✓ Reusing existing metadata labels memmap: after_preprocessed_thunderbird_meta.tsv.labels.npy
+   ✓ Metadata labels memmap shape: (208105405,)
+
+   Computing Silhouette scores...
+   Sampling 100,000 non-noise points from 208,105,405 for silhouette...
+   Preparing sampled labels (100,000)...
+   Loading sampled embeddings (100,000) from source array...
+   ✓ Sampled embeddings loaded
+🚀 Attempting GPU silhouette computation via rapids-pip kernel...
+   Found Python: /home/bioinfo04/anaconda3/envs/rapids-pip/bin/python
+   Launching GPU computation...
+⚠ GPU computation failed: GPU script failed: ✗ cuML import failed: cannot import name 'load_nvidia_dynamic_lib' from 'cuda.pathfinder' (unknown location)
+
+⚠ Falling back to CPU sklearn computation...
+✓ CPU silhouette complete: 0.4102
+   ✓ Computed sampled silhouette for 92 clusters
+
+Analyzing clusters: 100%|███████████████████████| 92/92 [00:32<00:00,  2.80it/s]
+
+
+======================================================================
+CLUSTER CHARACTERISTICS SUMMARY (SEMI-SUPERVISED: Metadata-based)
+======================================================================
+
+Total clusters: 92
+
+Cluster Labels (Metadata-based):
+  NORMAL      :   91 clusters, 205,471,383 samples
+  ANOMALY     :    1 clusters, 2,634,022 samples
+
+Labeling Reasons:
+  normal_strong_majority:   91 clusters
+  low_metadata_evidence:    1 clusters
+
+Cluster Size Statistics:
+  Mean:   2262015
+  Median: 1243048
+  Min:    10330
+  Max:    17,058,374
+
+Silhouette Score Statistics (excluding noise):
+  Overall Mean: 0.4102
+  Per-Cluster Mean: 0.4455
+  Per-Cluster Median: 0.4018
+  Per-Cluster Std: 0.4269
+  Per-Cluster Min: -0.9940
+  Per-Cluster Max: 1.0000
+
+  Interpretation:
+    > 0.7  : Strong structure, well-separated clusters
+    0.5-0.7: Reasonable structure
+    0.25-0.5: Weak structure, overlapping clusters
+    < 0.25 : No substantial structure
+
+✓ Cluster analysis saved to: testing_results/thunderbird_kmeans_base/cluster_analysis.csv
+
+======================================================================
+STEP 4: LOAD TESTING DATA (2-class ground truth)
+======================================================================
+
+📦 Loading 2 testing sets...
+   📌 Ground truth assigned based on set name (not template matching)
+
+  📂 Loading test set: normal
+     Embeddings: after_preprocessed_thunderbird_normal_embeddings.npy
+     ✓ Loaded embeddings: (1392530, 768)
+     ✓ Ground truth: ALL 1,392,530 samples = NORMAL (0)
+
+  📂 Loading test set: nonnormal
+     Embeddings: after_preprocessed_thunderbird_non_normal_embeddings.npy
+     ✓ Loaded embeddings: (599988, 768)
+     ✓ Ground truth: ALL 599,988 samples = NON-NORMAL (1)
+
+✓ Combined testing data:
+  Total samples: 1,992,518
+  Embeddings shape: (1992518, 768)
+
+======================================================================
+STEP 5: ASSIGN TEST SAMPLES TO CLUSTERS (k-NN)
+======================================================================
+
+Loading K-Means model...
+   ⚠️ Detected NumPy RNG pickle compatibility issue. Retrying with compatibility patch...
+   ⚠️ K-Means model load failed: Failed to load model due to NumPy compatibility issue. Try using the same NumPy version used during training. Details: state is not a legacy MT19937 state
+   ⚠️ Falling back to centroid-based assignment from cluster labels
+
+Loading centroid cache: kmeans_centroids_thunderbird_base_768d.npz
+   ✓ Loaded 92 centroids
+
+Predicting cluster assignments for test data (centroid fallback)...
+
+   Assigning by centroids: 100%|██████████████| 100/100 [00:05<00:00, 19.25it/s]
+
+   ✓ Assigned 1,992,518 test samples
+
+💾 Saving STEP 6 checkpoint...
+   ✓ Saved: step6_test_cluster_labels.npy
+
+======================================================================
+STEP 6: PREDICTION (SEMI-SUPERVISED: Metadata-based)
+======================================================================
+
+🎯 Predicting test samples (SEMI-SUPERVISED: Direct cluster lookup)...
+   Using metadata-labeled clusters...
+
+Predicting: 100%|█████████████████| 1992518/1992518 [00:05<00:00, 397094.86it/s]
+
+
+   ✓ Predicted 1,992,518 test samples
+
+   Prediction Methods Used:
+      metadata_normal     : 1,396,019 samples (70.1%)
+      low_metadata_evidence: 596,499 samples (29.9%)
+
+✓ Predictions saved to: testing_results/thunderbird_kmeans_base/predictions.npy
+
+💾 Saving STEP 6 checkpoint...
+   ✓ Saved: step7_predictions.npy
+   ✓ Saved: step7_confidence.npy
+   ✓ Saved: step7_methods.npy
+   ✓ Saved: checkpoint_metadata.pkl
+
+✅ All checkpoints saved! You can resume from STEP 8 if needed.
+
+======================================================================
+STEP 7: CALCULATE METRICS (2x3 confusion matrix)
+======================================================================
+
+📊 Calculating metrics...
+   Ground truth classes: [0, 1] → ['NORMAL', 'NON-NORMAL']
+   Prediction classes:   [0, 2] → ['NORMAL', 'ANOMALY']
+
+======================================================================
+OVERALL METRICS (2-CLASS GROUND TRUTH vs 3-CLASS PREDICTION)
+======================================================================
+
+Overall Accuracy: 0.6989
+
+Per-Class Metrics (Ground Truth Classes Only):
+                  Precision  Recall   F1-Score  Support
+  NORMAL          0.9975    1.0000    0.9987   1,392,530
+  NON-NORMAL      0.0000    0.0000    0.0000   599,988
+
+Macro Avg:          0.4987    0.5000    0.4994
+Weighted Avg:       0.6971    0.6989    0.6980
+
+Confusion Matrix (2x3):
+                 Predicted
+                      NO     NO     AN
+    True  NO [1392522      0      8 ]
+    True  NO [  3497      0 596491 ]
+
+📊 Prediction Distribution:
+
+  NORMAL (1,392,530 samples):
+    → Predicted as NORMAL      : 1,392,522 (100.00%) ✓ Correct
+    → Predicted as NON-NORMAL  :       0 ( 0.00%) ✗ Wrong
+    → Predicted as ANOMALY     :       8 ( 0.00%) ✗ Wrong
+
+  NON-NORMAL (599,988 samples):
+    → Predicted as NORMAL      :   3,497 ( 0.58%) ✗ Wrong
+    → Predicted as NON-NORMAL  :       0 ( 0.00%) ✓ Correct
+    → Predicted as ANOMALY     : 596,491 (99.42%) ✗ Wrong
+
+======================================================================
+PER-METHOD METRICS
+======================================================================
+
+LOW_METADATA_EVIDENCE: 596,499 samples (29.9%)
+  Distribution: NORMAL=8 NON-NORMAL=596,491
+  Accuracy: 0.0000
+
+METADATA_NORMAL: 1,396,019 samples (70.1%)
+  Distribution: NORMAL=1,392,522 NON-NORMAL=3,497
+  Accuracy: 0.9975
+
+✓ Metrics saved to: testing_results/thunderbird_kmeans_base/metrics.txt
+
+======================================================================
+STEP 9: SAVE DETAILED RESULTS
+======================================================================
+
+🔍 Debugging test_set_info:
+   normal      : [      0 → 1,392,530] = 1,392,530 samples
+   nonnormal   : [1,392,530 → 1,992,518] = 599,988 samples
+
+   Total expected:  1,992,518
+   Total coverage:  1,992,518
+
+📝 Assigning test set names...
+   ✓ normal      : assigned 1,392,530 samples [0 → 1,392,530)
+   ✓ nonnormal   : assigned 599,988 samples [1,392,530 → 1,992,518)
+
+   ✓ All samples successfully assigned!
+
+📏 Validating array lengths:
+   test_gt_labels:     1,992,518
+   test_cluster_labels: 1,992,518
+   predictions:        1,992,518
+   confidence:         1,992,518
+   methods:            1,992,518
+   test_set_names:     1,992,518
+✓ Detailed results saved to: testing_results/thunderbird_kmeans_base/detailed_results.csv
+  Total rows: 1,992,518
+
+📊 Per-Set Performance:
+   normal      : 1.0000 accuracy (1,392,530 samples)
+   nonnormal   : 0.0000 accuracy (599,988 samples)
+
+📈 Calculating per-set detailed metrics...
+✓ Per-set metrics saved to: testing_results/thunderbird_kmeans_base/per_set_metrics.csv
+
+======================================================================
+STEP 10: CREATE VISUALIZATIONS
+======================================================================
+
+📈 Creating visualizations...
+   ✓ Saved overview plot
+   ✓ Saved confusion matrix (2x3)
+
+======================================================================
+STEP 8: DETAILED PREDICTION DISTRIBUTION ANALYSIS
+======================================================================
+
+📊 Prediction Distribution by Ground Truth Class:
+======================================================================
+
+NORMAL Ground Truth (1,392,530 samples):
+----------------------------------------------------------------------
+  → Predicted as NORMAL      : 1,392,522 (100.00%) ✓ CORRECT
+  → Predicted as ANOMALY     :        8 (  0.00%) ✗ ERROR
+
+  Summary:
+    Correct: 1,392,522 (100.00%)
+    Errors:  8 (0.00%)
+
+NON-NORMAL Ground Truth (599,988 samples):
+----------------------------------------------------------------------
+  → Predicted as NORMAL      :    3,497 (  0.58%) ✗ ERROR
+  → Predicted as ANOMALY     :  596,491 ( 99.42%) ✗ ERROR
+
+  Summary:
+    Correct: 0 (0.00%)
+    Errors:  599,988 (100.00%)
+
+======================================================================
+🔍 Error Breakdown (Mispredictions):
+======================================================================
+
+NORMAL Errors (8 / 1,392,530 = 0.00%):
+----------------------------------------------------------------------
+  → Misclassified as ANOMALY     :        8
+     (100.0% of errors,  0.00% of total NORMAL)
+     Top methods: low_metadata_evidence=8 
+
+NON-NORMAL Errors (599,988 / 599,988 = 100.00%):
+----------------------------------------------------------------------
+  → Misclassified as NORMAL      :    3,497
+     (  0.6% of errors,  0.58% of total NON-NORMAL)
+     Top methods: metadata_normal=3,497 
+  → Misclassified as ANOMALY     :  596,491
+     ( 99.4% of errors, 99.42% of total NON-NORMAL)
+     Top methods: low_metadata_evidence=596,491 
+
+======================================================================
+🔧 Error Analysis by Prediction Method:
+======================================================================
+
+LOW_METADATA_EVIDENCE Method (596,499 samples):
+----------------------------------------------------------------------
+  NORMAL      :       8 samples,       0 correct,       8 errors (100.00%)
+    →       8 misclassified as ANOMALY
+  NON-NORMAL  : 596,491 samples,       0 correct, 596,491 errors (100.00%)
+    → 596,491 misclassified as ANOMALY
+
+METADATA_NORMAL Method (1,396,019 samples):
+----------------------------------------------------------------------
+  NORMAL      : 1,392,522 samples, 1,392,522 correct,       0 errors ( 0.00%)
+  NON-NORMAL  :   3,497 samples,       0 correct,   3,497 errors (100.00%)
+    →   3,497 misclassified as NORMAL
+
+======================================================================
+📂 Error Analysis by Test Set:
+======================================================================
+
+NONNORMAL Test Set (599,988 samples):
+----------------------------------------------------------------------
+
+  NON-NORMAL (599,988 samples):
+    ✗ → NORMAL      :   3,497 (  0.58%)
+    ✗ → ANOMALY     : 596,491 ( 99.42%)
+
+NORMAL Test Set (1,392,530 samples):
+----------------------------------------------------------------------
+
+  NORMAL (1,392,530 samples):
+    ✓ → NORMAL      : 1,392,522 (100.00%)
+    ✗ → ANOMALY     :       8 (  0.00%)
+
+======================================================================
+💾 Saving distribution statistics...
+✓ Distribution table saved: testing_results/thunderbird_kmeans_base/prediction_distribution.csv
+
+📊 Creating distribution visualizations...
+✓ Distribution plot saved: testing_results/thunderbird_kmeans_base/prediction_distribution.png
+
+======================================================================
+✓ Prediction distribution analysis complete!
+======================================================================
+
+======================================================================
+TESTING PIPELINE COMPLETED
+======================================================================
+
+✓ All results saved to: testing_results/thunderbird_kmeans_base
+
+Key files:
+  - Predictions:           predictions.npy
+  - Cluster analysis:      cluster_analysis.csv
+  - Metrics:               metrics.txt
+  - Per-set metrics:       per_set_metrics.csv
+  - Detailed results:      detailed_results.csv
+  - Prediction distribution: prediction_distribution.csv
+  - Visualizations:        analysis_overview.png, confusion_matrix.png, prediction_distribution.png
+
+🎯 Final Results:
+  Ground Truth: 2-class → ['NORMAL', 'NON-NORMAL']
+  Predictions:  2-class → ['NORMAL', 'ANOMALY']
+  Overall Accuracy: 0.6989
+  NORMAL       F1:  0.9987
+  NON-NORMAL   F1:  0.0000
+  Macro Avg F1:     0.4994

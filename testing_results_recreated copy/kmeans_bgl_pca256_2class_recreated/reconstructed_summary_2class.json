@@ -1,0 +1,78 @@
+{
+  "dataset": "BGL",
+  "algorithm": "kmeans",
+  "embedding": "pca256",
+  "overall_accuracy": 0.847,
+  "ground_truth_classes": [
+    0,
+    1
+  ],
+  "prediction_classes": [
+    0,
+    1
+  ],
+  "confusion_matrix": [
+    [
+      502572,
+      53020
+    ],
+    [
+      68726,
+      171274
+    ]
+  ],
+  "per_class_metrics": {
+    "NORMAL": {
+      "precision": 0.8797,
+      "recall": 0.9046,
+      "f1": 0.892,
+      "support": 555592
+    },
+    "ANOMALY": {
+      "precision": 0.7636,
+      "recall": 0.7136,
+      "f1": 0.7378,
+      "support": 240000
+    }
+  },
+  "prediction_distribution": {
+    "NORMAL": {
+      "NORMAL": 502572,
+      "ANOMALY": 53020
+    },
+    "ANOMALY": {
+      "NORMAL": 68726,
+      "ANOMALY": 171274
+    }
+  },
+  "cluster_label_summary": {
+    "NORMAL": 32,
+    "ANOMALY": 2
+  },
+  "cluster_size_stats": {
+    "mean": 115232.0,
+    "median": 57750.0,
+    "min": 12395.0,
+    "max": 1492074.0
+  },
+  "per_method_metrics": {
+    "METADATA_NONNORMAL": {
+      "samples": 224294,
+      "percentage": 28.2,
+      "distribution": {
+        "NORMAL": 53020,
+        "ANOMALY": 171274
+      },
+      "accuracy": 0.7636
+    },
+    "METADATA_NORMAL": {
+      "samples": 571298,
+      "percentage": 71.8,
+      "distribution": {
+        "NORMAL": 502572,
+        "ANOMALY": 68726
+      },
+      "accuracy": 0.8797
+    }
+  }
+}

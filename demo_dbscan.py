@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 from sentence_to_vector import log_to_vector
 from sklearn.metrics.pairwise import euclidean_distances
-from log_preprocessing import LogPreprocessor
+from anomaly_detection.log_processing.log_preprocessing import LogPreprocessor
 
 # ==============================================================================
 #           FUNGSI HELPER UNTUK DETEKSI ANOMALI

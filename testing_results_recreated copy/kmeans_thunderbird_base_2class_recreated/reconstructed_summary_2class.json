@@ -1,0 +1,78 @@
+{
+  "dataset": "Thunderbird",
+  "algorithm": "kmeans",
+  "embedding": "base",
+  "overall_accuracy": 0.6989,
+  "ground_truth_classes": [
+    0,
+    1
+  ],
+  "prediction_classes": [
+    0,
+    1
+  ],
+  "confusion_matrix": [
+    [
+      1392522,
+      8
+    ],
+    [
+      3497,
+      596491
+    ]
+  ],
+  "per_class_metrics": {
+    "NORMAL": {
+      "precision": 0.9975,
+      "recall": 1.0,
+      "f1": 0.9987,
+      "support": 1392530
+    },
+    "ANOMALY": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 599988
+    }
+  },
+  "prediction_distribution": {
+    "NORMAL": {
+      "NORMAL": 1392522,
+      "ANOMALY": 8
+    },
+    "ANOMALY": {
+      "NORMAL": 3497,
+      "ANOMALY": 596491
+    }
+  },
+  "cluster_label_summary": {
+    "NORMAL": 91,
+    "ANOMALY": 1
+  },
+  "cluster_size_stats": {
+    "mean": 2262015.0,
+    "median": 1243048.0,
+    "min": 10330.0,
+    "max": 17058374.0
+  },
+  "per_method_metrics": {
+    "LOW_METADATA_EVIDENCE": {
+      "samples": 596499,
+      "percentage": 29.9,
+      "distribution": {
+        "NORMAL": 8,
+        "ANOMALY": 596491
+      },
+      "accuracy": 0.0
+    },
+    "METADATA_NORMAL": {
+      "samples": 1396019,
+      "percentage": 70.1,
+      "distribution": {
+        "NORMAL": 1392522,
+        "ANOMALY": 3497
+      },
+      "accuracy": 0.9975
+    }
+  }
+}

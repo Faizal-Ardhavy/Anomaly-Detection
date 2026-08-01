@@ -1,0 +1,69 @@
+{
+  "dataset": "Thunderbird",
+  "algorithm": "dbscan",
+  "embedding": "pca256",
+  "overall_accuracy": 0.0,
+  "ground_truth_classes": [
+    0,
+    1
+  ],
+  "prediction_classes": [
+    0,
+    1
+  ],
+  "confusion_matrix": [
+    [
+      0,
+      1392530
+    ],
+    [
+      0,
+      599988
+    ]
+  ],
+  "per_class_metrics": {
+    "NORMAL": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 1392530
+    },
+    "ANOMALY": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 599988
+    }
+  },
+  "prediction_distribution": {
+    "NORMAL": {
+      "NORMAL": 0,
+      "ANOMALY": 1392530
+    },
+    "ANOMALY": {
+      "NORMAL": 0,
+      "ANOMALY": 599988
+    }
+  },
+  "cluster_label_summary": {
+    "NORMAL": 7,
+    "ANOMALY": 1
+  },
+  "cluster_size_stats": {
+    "mean": 26013176.0,
+    "median": 130834.0,
+    "min": 17713.0,
+    "max": 202484349.0
+  },
+  "per_method_metrics": {
+    "DBSCAN_NOISE": {
+      "samples": 1992518,
+      "percentage": 100.0,
+      "distribution": {
+        "NORMAL": 1392530,
+        "ANOMALY": 599988
+      },
+      "accuracy": 0.0
+    }
+  }
+}

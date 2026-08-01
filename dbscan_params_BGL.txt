@@ -1,0 +1,2049 @@
+Baik, saya jelaskan flow pencarian eps dan minPts di notebook DBSCAN ini:
+
+🔍 Flow Pencarian Parameter Optimal
+PART 2: K-Distance Analysis (Estimasi eps)
+Flow:
+
+Sample data: 500K samples (GPU) atau 150K (CPU)
+Hitung k-nearest neighbors (k=30) untuk setiap sample
+Ambil jarak ke k-th neighbor → k-distance
+Sort k-distance dan plot grafik
+Hitung percentiles: 50th, 60th, 70th, 80th, 85th, 90th, 95th
+Kriteria penentuan eps range:
+eps_min = np.percentile(k_dist_clean, 75)    # 75th percentile
+eps_max = np.percentile(k_dist_clean, 99)    # 99th percentile
+
+Alasan:
+
+✅ 75th percentile (minimum): Hindari over-merging, jarak terlalu kecil = terlalu banyak noise
+✅ 99th percentile (maximum): Hindari under-clustering, jarak terlalu besar = semua jadi 1 cluster
+✅ Plot untuk visual inspection: cari "elbow point" (titik lengkungan tajam)
+Output Part 2:
+
+Range eps: [0.1852 - 0.4847] (untuk BGL 768D)
+8 nilai eps di-generate dengan np.linspace()
+PART 3: Grid Search (Cari Kombinasi Terbaik)
+Flow:
+
+Sample 50K data untuk speed (GPU) atau 15K (CPU)
+Test 40 kombinasi (8 eps × 5 min_samples)
+Untuk setiap kombinasi:
+Fit DBSCAN dengan params (eps, min_samples)
+Hitung metrics: n_clusters, noise_pct, silhouette_score
+Simpan semua hasil di DataFrame
+Sort by silhouette_score (descending)
+Parameter Grid:
+eps_values = 8 nilai dari [eps_min, eps_max]
+min_samples_values = [5, 10, 15, 20, 30]  # GPU mode
+
+Kriteria Evaluasi (3 metrics):
+
+Silhouette Score (PRIMARY)
+
+Range: -1 to +1
+Kriteria: MAX (semakin tinggi semakin baik)
+Interpretasi:
+> 0.7 = Excellent separation
+0.5 - 0.7 = Good
+< 0.5 = Poor/overlapping clusters
+Mengukur: Seberapa baik samples terpisah antar cluster
+Noise Percentage (SECONDARY)
+
+Kriteria: LOW (< 30% ideal, < 5% excellent)
+Interpretasi:
+< 1% = Almost all data clustered (sangat baik)
+1-10% = Good
+> 30% = Too many outliers (eps terlalu kecil)
+Mengukur: Berapa banyak data dianggap noise/outlier
+Number of Clusters (SANITY CHECK)
+
+Kriteria: REASONABLE (tidak terlalu sedikit/banyak)
+Interpretasi:
+< 10 = Under-clustering (eps terlalu besar)
+10-500 = Good range untuk log data
+> 1000 = Over-fragmentation (eps terlalu kecil)
+Mengukur: Granularity clustering
+Decision Logic:
+# Sort by silhouette (descending)
+df_res.sort_values('silhouette', ascending=False)
+
+# Top 10 shown, config #1 = best
+best_config = df_res.iloc[0]  # Highest silhouette
+
+Mengapa silhouette jadi primary?
+
+✅ Mengukur quality clustering (separation + compactness)
+✅ Works tanpa ground truth labels
+✅ Balance antara "too few" vs "too many" clusters
+PART 4: Final Clustering (Apply Best Config)
+Flow:
+
+Ambil best config dari Part 3:
+eps = 0.227972
+min_samples = 5
+
+Apply ke FULL dataset (3.9M samples)
+GPU path: Fit on stratified sample → k-NN assignment
+Save labels + config
+📊 Contoh Decision Process (BGL 768D):
+k-distance results:
+80th: 0.19
+90th: 0.22  ← optimal range
+95th: 0.33
+
+Grid search top 3:
+Rank  eps      min_samples  clusters  noise   silhouette
+1     0.228    5            116       0.3%    0.8923  ← BEST (high sil, low noise)
+2     0.228    10           104       0.5%    0.8909  (slightly lower sil)
+3     0.228    15           96        0.7%    0.8891  (lower sil)
+
+Decision:
+
+✅ eps=0.228 (near 90th percentile k-distance) ✓ Sweet spot
+✅ min_samples=5 ✓ Detect small clusters, high silhouette
+✅ Silhouette 0.89 ✓ Excellent separation
+✅ Noise 0.3% ✓ Almost all data clustered
+✅ 116 clusters ✓ Reasonable diversity
+💡 Key Insights:
+Mengapa min_samples=5 menang (bukan 30)?
+
+✅ Lower min_samples → detect rare anomaly patterns (small clusters)
+✅ Silhouette tetap tinggi → clusters masih well-separated
+✅ Noise tetap rendah → tidak over-fragment
+Tradeoff yang dipertimbangkan:
+min_samples↑ → fewer clusters, higher noise, miss rare patterns
+min_samples↓ → more clusters, detect rare patterns, risk fragmentation
+
+Untuk BGL: min_samples=5 optimal karena banyak rare anomaly types yang penting dideteksi!
+
+Kriteria final selection:
+
+Maximize: Silhouette score
+Minimize: Noise percentage (as secondary)
+Sanity check: n_clusters reasonable (10-500 untuk log data)
+
+
+
+DATASET BGL BASE:
+🔄 Computing k-distance (k=30)...
+   Sample size: 13,773
+
+
+📊 k-distance statistics:
+   50th percentile: 0.1605
+   60th percentile: 0.1682
+   70th percentile: 0.1783
+   80th percentile: 0.1932
+   85th percentile: 0.2032
+   90th percentile: 0.2221
+   95th percentile: 0.3265
+
+Preparing sample for parameter search...
+Sample: 50,000 / 3,917,901
+
+Parameter grid:
+  eps: 8 values [0.1852 - 0.4847]
+  min_samples: [5, 10, 15, 20, 30]
+  Total: 40 combinations
+  Algorithm: 🎮 cuML DBSCAN (GPU)
+
+Grid search:   2%|▋                          | 1/40 [01:11<46:17, 71.22s/config]
+
+  eps=0.1852, ms= 5 → clusters=148, noise=  0.6%, sil=0.8742 (70.99s)
+
+Grid search:   5%|█▎                         | 2/40 [02:22<44:58, 71.00s/config]
+
+  eps=0.1852, ms=10 → clusters=135, noise=  1.0%, sil=0.8729 (70.78s)
+
+Grid search:   8%|██                         | 3/40 [03:32<43:41, 70.85s/config]
+
+  eps=0.1852, ms=15 → clusters=123, noise=  1.4%, sil=0.8716 (70.61s)
+
+Grid search:  10%|██▋                        | 4/40 [04:42<42:17, 70.47s/config]
+
+  eps=0.1852, ms=20 → clusters=117, noise=  1.8%, sil=0.8680 (69.82s)
+
+Grid search:  12%|███▍                       | 5/40 [05:52<40:57, 70.22s/config]
+
+  eps=0.1852, ms=30 → clusters=91, noise=  3.2%, sil=0.8574 (69.71s)
+
+Grid search:  15%|████                       | 6/40 [07:02<39:41, 70.04s/config]
+
+  eps=0.228, ms= 5 → clusters=116, noise=  0.3%, sil=0.8923 (69.62s)
+
+Grid search:  18%|████▋                      | 7/40 [08:12<38:30, 70.01s/config]
+
+  eps=0.228, ms=10 → clusters=104, noise=  0.5%, sil=0.8909 (69.88s)
+
+Grid search:  20%|█████▍                     | 8/40 [09:21<37:19, 69.98s/config]
+
+  eps=0.228, ms=15 → clusters=96, noise=  0.7%, sil=0.8891 (69.86s)
+
+Grid search:  22%|██████                     | 9/40 [10:31<36:08, 69.95s/config]
+
+  eps=0.228, ms=20 → clusters=91, noise=  0.9%, sil=0.8871 (69.79s)
+
+Grid search:  25%|██████▌                   | 10/40 [11:41<34:58, 69.94s/config]
+
+  eps=0.228, ms=30 → clusters=78, noise=  1.5%, sil=0.8804 (69.87s)
+
+Grid search:  28%|███████▏                  | 11/40 [12:51<33:50, 70.02s/config]
+
+  eps=0.2708, ms= 5 → clusters=89, noise=  0.3%, sil=0.8496 (70.11s)
+
+Grid search:  30%|███████▊                  | 12/40 [14:01<32:37, 69.91s/config]
+
+  eps=0.2708, ms=10 → clusters=80, noise=  0.4%, sil=0.8486 (69.62s)
+
+Grid search:  32%|████████▍                 | 13/40 [15:11<31:24, 69.80s/config]
+
+  eps=0.2708, ms=15 → clusters=73, noise=  0.6%, sil=0.8483 (69.48s)
+
+Grid search:  35%|█████████                 | 14/40 [16:22<30:27, 70.30s/config]
+
+  eps=0.2708, ms=20 → clusters=69, noise=  0.7%, sil=0.8467 (71.37s)
+
+Grid search:  38%|█████████▊                | 15/40 [17:34<29:28, 70.74s/config]
+
+  eps=0.2708, ms=30 → clusters=63, noise=  1.1%, sil=0.8441 (71.69s)
+
+Grid search:  40%|██████████▍               | 16/40 [18:44<28:14, 70.60s/config]
+
+  eps=0.3135, ms= 5 → clusters=57, noise=  0.2%, sil=0.5710 (70.22s)
+
+Grid search:  42%|███████████               | 17/40 [19:55<27:03, 70.59s/config]
+
+  eps=0.3135, ms=10 → clusters=52, noise=  0.2%, sil=0.5703 (70.50s)
+
+Grid search:  45%|███████████▋              | 18/40 [21:05<25:51, 70.53s/config]
+
+  eps=0.3135, ms=15 → clusters=47, noise=  0.4%, sil=0.5704 (70.31s)
+
+Grid search:  48%|████████████▎             | 19/40 [22:15<24:39, 70.47s/config]
+
+  eps=0.3135, ms=20 → clusters=44, noise=  0.5%, sil=0.5700 (70.27s)
+
+Grid search:  50%|█████████████             | 20/40 [23:26<23:29, 70.47s/config]
+
+  eps=0.3135, ms=30 → clusters=39, noise=  0.7%, sil=0.5695 (70.40s)
+
+Grid search:  52%|█████████████▋            | 21/40 [24:38<22:25, 70.82s/config]
+
+  eps=0.3563, ms= 5 → clusters=37, noise=  0.1%, sil=0.3005 (71.56s)
+
+Grid search:  55%|██████████████▎           | 22/40 [25:50<21:25, 71.43s/config]
+
+  eps=0.3563, ms=10 → clusters=31, noise=  0.2%, sil=0.3024 (72.80s)
+
+Grid search:  57%|██████████████▉           | 23/40 [27:02<20:14, 71.43s/config]
+
+  eps=0.3563, ms=15 → clusters=29, noise=  0.3%, sil=0.3019 (71.37s)
+
+Grid search:  60%|███████████████▌          | 24/40 [28:14<19:07, 71.69s/config]
+
+  eps=0.3563, ms=20 → clusters=28, noise=  0.3%, sil=0.3014 (72.24s)
+
+Grid search:  62%|████████████████▎         | 25/40 [29:26<17:55, 71.69s/config]
+
+  eps=0.3563, ms=30 → clusters=26, noise=  0.4%, sil=0.3076 (71.60s)
+
+Grid search:  65%|████████████████▉         | 26/40 [30:38<16:46, 71.88s/config]
+
+  eps=0.3991, ms= 5 → clusters=24, noise=  0.1%, sil=0.3040 (72.26s)
+
+Grid search:  68%|█████████████████▌        | 27/40 [31:51<15:37, 72.10s/config]
+
+  eps=0.3991, ms=10 → clusters=20, noise=  0.1%, sil=0.3169 (72.54s)
+
+Grid search:  70%|██████████████████▏       | 28/40 [33:03<14:24, 72.07s/config]
+
+  eps=0.3991, ms=15 → clusters=18, noise=  0.2%, sil=0.3164 (71.92s)
+
+Grid search:  72%|██████████████████▊       | 29/40 [34:16<13:14, 72.27s/config]
+
+  eps=0.3991, ms=20 → clusters=17, noise=  0.2%, sil=0.3160 (72.67s)
+
+Grid search:  75%|███████████████████▌      | 30/40 [35:28<12:02, 72.27s/config]
+
+  eps=0.3991, ms=30 → clusters=17, noise=  0.2%, sil=0.3160 (72.21s)
+
+Grid search:  78%|████████████████████▏     | 31/40 [36:41<10:52, 72.47s/config]
+
+  eps=0.4419, ms= 5 → clusters=14, noise=  0.0%, sil=0.2355 (72.88s)
+
+Grid search:  80%|████████████████████▊     | 32/40 [37:54<09:41, 72.67s/config]
+
+  eps=0.4419, ms=10 → clusters=12, noise=  0.1%, sil=0.2522 (73.08s)
+
+Grid search:  82%|█████████████████████▍    | 33/40 [39:07<08:29, 72.75s/config]
+
+  eps=0.4419, ms=15 → clusters=11, noise=  0.1%, sil=0.2522 (72.87s)
+
+Grid search:  85%|██████████████████████    | 34/40 [40:20<07:16, 72.80s/config]
+
+  eps=0.4419, ms=20 → clusters=10, noise=  0.2%, sil=0.2522 (72.84s)
+
+Grid search:  88%|██████████████████████▊   | 35/40 [41:33<06:04, 72.84s/config]
+
+  eps=0.4419, ms=30 → clusters=10, noise=  0.2%, sil=0.2522 (72.87s)
+
+Grid search:  90%|███████████████████████▍  | 36/40 [42:46<04:51, 72.89s/config]
+
+  eps=0.4847, ms= 5 → clusters= 5, noise=  0.0%, sil=0.2446 (72.93s)
+
+Grid search:  92%|████████████████████████  | 37/40 [43:59<03:39, 73.06s/config]
+
+  eps=0.4847, ms=10 → clusters= 5, noise=  0.0%, sil=0.2446 (73.38s)
+
+Grid search:  95%|████████████████████████▋ | 38/40 [45:12<02:26, 73.06s/config]
+
+  eps=0.4847, ms=15 → clusters= 5, noise=  0.0%, sil=0.2446 (73.01s)
+
+Grid search:  98%|█████████████████████████▎| 39/40 [46:26<01:13, 73.17s/config]
+
+  eps=0.4847, ms=20 → clusters= 5, noise=  0.0%, sil=0.2446 (73.36s)
+
+Grid search: 100%|██████████████████████████| 40/40 [47:39<00:00, 71.48s/config]
+
+  eps=0.4847, ms=30 → clusters= 5, noise=  0.0%, sil=0.2446 (73.02s)
+
+======================================================================
+TOP 10 CONFIGURATIONS (by silhouette)
+======================================================================
+     eps  min_samples  n_clusters  noise_pct  silhouette
+0.227972            5         116      0.330    0.892294
+0.227972           10         104      0.502    0.890921
+0.227972           15          96      0.684    0.889121
+0.227972           20          91      0.856    0.887141
+0.227972           30          78      1.528    0.880375
+0.185188            5         148      0.640    0.874212
+0.185188           10         135      0.976    0.872884
+0.185188           15         123      1.406    0.871570
+0.185188           20         117      1.760    0.867997
+0.185188           30          91      3.162    0.857437
+
+======================================================================
+CONFIGURATIONS WITH LOW NOISE (<30%)
+======================================================================
+     eps  min_samples  n_clusters  noise_pct  silhouette
+0.227972            5         116      0.330    0.892294
+0.227972           10         104      0.502    0.890921
+0.227972           15          96      0.684    0.889121
+0.227972           20          91      0.856    0.887141
+0.227972           30          78      1.528    0.880375
+0.185188            5         148      0.640    0.874212
+0.185188           10         135      0.976    0.872884
+0.185188           15         123      1.406    0.871570
+0.185188           20         117      1.760    0.867997
+0.185188           30          91      3.162    0.857437
+
+======================================================================
+FINAL DBSCAN CONFIGURATION
+======================================================================
+Algorithm:   🎮 cuML DBSCAN (GPU)
+eps:         0.227972
+min_samples: 5
+metric:      euclidean (on normalized = cosine)
+Expected clusters: 116
+Expected noise:    0.3%
+Expected silhouette: 0.8923
+======================================================================
+Final Clustering Results:
+   Total samples: 3,917,901
+   Clusters found: 248
+   Noise points: 560 (0.0%)
+   Clustered points: 3,917,341 (100.0%)
+
+======================================================================
+CLUSTER ANALYSIS
+======================================================================
+
+Label counts (including noise -1):
+ - NOISE       :      560 samples ( 0.01%)
+ - Cluster 0   :    2,086 samples ( 0.05%)
+ - Cluster 1   :   19,417 samples ( 0.50%)
+ - Cluster 2   : 1,490,078 samples (38.03%)
+ - Cluster 3   :   47,572 samples ( 1.21%)
+ - Cluster 4   :  182,284 samples ( 4.65%)
+ - Cluster 5   :   92,640 samples ( 2.36%)
+ - Cluster 6   :  258,219 samples ( 6.59%)
+ - Cluster 7   :   17,168 samples ( 0.44%)
+ - Cluster 8   :   19,266 samples ( 0.49%)
+ - Cluster 9   :    4,204 samples ( 0.11%)
+ - Cluster 10  :   36,230 samples ( 0.92%)
+ - Cluster 11  :  233,989 samples ( 5.97%)
+ - Cluster 12  :    9,565 samples ( 0.24%)
+ - Cluster 13  :    8,248 samples ( 0.21%)
+ - Cluster 14  :  175,557 samples ( 4.48%)
+ - Cluster 15  :   54,071 samples ( 1.38%)
+ - Cluster 16  :    4,837 samples ( 0.12%)
+ - Cluster 17  :      334 samples ( 0.01%)
+ - Cluster 18  :   11,335 samples ( 0.29%)
+ - Cluster 19  :    2,983 samples ( 0.08%)
+ - Cluster 20  :   11,361 samples ( 0.29%)
+ - Cluster 21  :   73,520 samples ( 1.88%)
+ - Cluster 22  :   15,135 samples ( 0.39%)
+ - Cluster 23  :   12,490 samples ( 0.32%)
+ - Cluster 24  :   29,210 samples ( 0.75%)
+ - Cluster 25  :   19,833 samples ( 0.51%)
+ - Cluster 26  :    5,682 samples ( 0.15%)
+ - Cluster 27  :   38,711 samples ( 0.99%)
+ - Cluster 28  :   13,410 samples ( 0.34%)
+ - Cluster 29  :   21,165 samples ( 0.54%)
+ - Cluster 30  :    1,923 samples ( 0.05%)
+ - Cluster 31  :    1,447 samples ( 0.04%)
+ - Cluster 32  :   15,796 samples ( 0.40%)
+ - Cluster 33  :    4,144 samples ( 0.11%)
+ - Cluster 34  :   15,167 samples ( 0.39%)
+ - Cluster 35  :      466 samples ( 0.01%)
+ - Cluster 36  :    3,621 samples ( 0.09%)
+ - Cluster 37  :    7,068 samples ( 0.18%)
+ - Cluster 38  :    1,840 samples ( 0.05%)
+ - Cluster 39  :   16,200 samples ( 0.41%)
+ - Cluster 40  :   11,131 samples ( 0.28%)
+ - Cluster 41  :   24,925 samples ( 0.64%)
+ - Cluster 42  :   11,396 samples ( 0.29%)
+ - Cluster 43  :  203,812 samples ( 5.20%)
+ - Cluster 44  :   50,025 samples ( 1.28%)
+ - Cluster 45  :   11,446 samples ( 0.29%)
+ - Cluster 46  :       39 samples ( 0.00%)
+ - Cluster 47  :      848 samples ( 0.02%)
+ - Cluster 48  :    5,736 samples ( 0.15%)
+ - Cluster 49  :    5,587 samples ( 0.14%)
+ - Cluster 50  :    3,230 samples ( 0.08%)
+ - Cluster 51  :    5,691 samples ( 0.15%)
+ - Cluster 52  :   15,118 samples ( 0.39%)
+ - Cluster 53  :   41,475 samples ( 1.06%)
+ - Cluster 54  :    4,195 samples ( 0.11%)
+ - Cluster 55  :    7,042 samples ( 0.18%)
+ - Cluster 56  :    1,890 samples ( 0.05%)
+ - Cluster 57  :    5,433 samples ( 0.14%)
+ - Cluster 58  :    3,203 samples ( 0.08%)
+ - Cluster 59  :      270 samples ( 0.01%)
+ - Cluster 60  :   16,873 samples ( 0.43%)
+ - Cluster 61  :    3,165 samples ( 0.08%)
+ - Cluster 62  :    5,412 samples ( 0.14%)
+ - Cluster 63  :    1,995 samples ( 0.05%)
+ - Cluster 64  :    5,730 samples ( 0.15%)
+ - Cluster 65  :   19,918 samples ( 0.51%)
+ - Cluster 66  :    6,706 samples ( 0.17%)
+ - Cluster 67  :    1,693 samples ( 0.04%)
+ - Cluster 68  :   37,546 samples ( 0.96%)
+ - Cluster 69  :    5,773 samples ( 0.15%)
+ - Cluster 70  :    5,729 samples ( 0.15%)
+ - Cluster 71  :    4,330 samples ( 0.11%)
+ - Cluster 72  :    7,040 samples ( 0.18%)
+ - Cluster 73  :    3,730 samples ( 0.10%)
+ - Cluster 74  :    1,335 samples ( 0.03%)
+ - Cluster 75  :    3,194 samples ( 0.08%)
+ - Cluster 76  :    2,096 samples ( 0.05%)
+ - Cluster 77  :    2,012 samples ( 0.05%)
+ - Cluster 78  :    3,775 samples ( 0.10%)
+ - Cluster 79  :      250 samples ( 0.01%)
+ - Cluster 80  :    2,331 samples ( 0.06%)
+ - Cluster 81  :      151 samples ( 0.00%)
+ - Cluster 82  :    1,579 samples ( 0.04%)
+ - Cluster 83  :    5,610 samples ( 0.14%)
+ - Cluster 84  :    1,223 samples ( 0.03%)
+ - Cluster 85  :      337 samples ( 0.01%)
+ - Cluster 86  :    1,793 samples ( 0.05%)
+ - Cluster 87  :      494 samples ( 0.01%)
+ - Cluster 88  :    1,798 samples ( 0.05%)
+ - Cluster 89  :    2,237 samples ( 0.06%)
+ - Cluster 90  :    2,104 samples ( 0.05%)
+ - Cluster 91  :    3,495 samples ( 0.09%)
+ - Cluster 92  :    1,577 samples ( 0.04%)
+ - Cluster 93  :      349 samples ( 0.01%)
+ - Cluster 94  :      203 samples ( 0.01%)
+ - Cluster 95  :    1,143 samples ( 0.03%)
+ - Cluster 96  :      771 samples ( 0.02%)
+ - Cluster 97  :    1,258 samples ( 0.03%)
+ - Cluster 98  :    1,344 samples ( 0.03%)
+ - Cluster 99  :       43 samples ( 0.00%)
+ - Cluster 100 :      465 samples ( 0.01%)
+ - Cluster 101 :       26 samples ( 0.00%)
+ - Cluster 102 :      274 samples ( 0.01%)
+ - Cluster 103 :    3,217 samples ( 0.08%)
+ - Cluster 104 :      425 samples ( 0.01%)
+ - Cluster 105 :      523 samples ( 0.01%)
+ - Cluster 106 :       79 samples ( 0.00%)
+ - Cluster 107 :      227 samples ( 0.01%)
+ - Cluster 108 :    9,784 samples ( 0.25%)
+ - Cluster 109 :      199 samples ( 0.01%)
+ - Cluster 110 :      340 samples ( 0.01%)
+ - Cluster 111 :       95 samples ( 0.00%)
+ - Cluster 112 :    1,313 samples ( 0.03%)
+ - Cluster 113 :      524 samples ( 0.01%)
+ - Cluster 114 :      655 samples ( 0.02%)
+ - Cluster 115 :       96 samples ( 0.00%)
+ - Cluster 116 :      101 samples ( 0.00%)
+ - Cluster 117 :    1,022 samples ( 0.03%)
+ - Cluster 118 :       41 samples ( 0.00%)
+ - Cluster 119 :      259 samples ( 0.01%)
+ - Cluster 120 :      212 samples ( 0.01%)
+ - Cluster 121 :      458 samples ( 0.01%)
+ - Cluster 122 :      145 samples ( 0.00%)
+ - Cluster 123 :       88 samples ( 0.00%)
+ - Cluster 124 :      158 samples ( 0.00%)
+ - Cluster 125 :       39 samples ( 0.00%)
+ - Cluster 126 :      258 samples ( 0.01%)
+ - Cluster 127 :       39 samples ( 0.00%)
+ - Cluster 128 :       56 samples ( 0.00%)
+ - Cluster 129 :       45 samples ( 0.00%)
+ - Cluster 130 :      117 samples ( 0.00%)
+ - Cluster 131 :       80 samples ( 0.00%)
+ - Cluster 132 :       62 samples ( 0.00%)
+ - Cluster 133 :      256 samples ( 0.01%)
+ - Cluster 134 :       43 samples ( 0.00%)
+ - Cluster 135 :      160 samples ( 0.00%)
+ - Cluster 136 :      128 samples ( 0.00%)
+ - Cluster 137 :      239 samples ( 0.01%)
+ - Cluster 138 :       80 samples ( 0.00%)
+ - Cluster 139 :       41 samples ( 0.00%)
+ - Cluster 140 :      153 samples ( 0.00%)
+ - Cluster 141 :       45 samples ( 0.00%)
+ - Cluster 142 :       41 samples ( 0.00%)
+ - Cluster 143 :       62 samples ( 0.00%)
+ - Cluster 144 :      260 samples ( 0.01%)
+ - Cluster 145 :       63 samples ( 0.00%)
+ - Cluster 146 :       86 samples ( 0.00%)
+ - Cluster 147 :       18 samples ( 0.00%)
+ - Cluster 148 :       82 samples ( 0.00%)
+ - Cluster 149 :       34 samples ( 0.00%)
+ - Cluster 150 :       34 samples ( 0.00%)
+ - Cluster 151 :       90 samples ( 0.00%)
+ - Cluster 152 :       67 samples ( 0.00%)
+ - Cluster 153 :       37 samples ( 0.00%)
+ - Cluster 154 :       40 samples ( 0.00%)
+ - Cluster 155 :       40 samples ( 0.00%)
+ - Cluster 156 :       81 samples ( 0.00%)
+ - Cluster 157 :       66 samples ( 0.00%)
+ - Cluster 158 :       52 samples ( 0.00%)
+ - Cluster 159 :       43 samples ( 0.00%)
+ - Cluster 160 :       42 samples ( 0.00%)
+ - Cluster 161 :       38 samples ( 0.00%)
+ - Cluster 162 :       40 samples ( 0.00%)
+ - Cluster 163 :       83 samples ( 0.00%)
+ - Cluster 164 :       45 samples ( 0.00%)
+ - Cluster 165 :      122 samples ( 0.00%)
+ - Cluster 166 :      116 samples ( 0.00%)
+ - Cluster 167 :       43 samples ( 0.00%)
+ - Cluster 168 :       48 samples ( 0.00%)
+ - Cluster 169 :       41 samples ( 0.00%)
+ - Cluster 170 :       86 samples ( 0.00%)
+ - Cluster 171 :       43 samples ( 0.00%)
+ - Cluster 172 :       39 samples ( 0.00%)
+ - Cluster 173 :       43 samples ( 0.00%)
+ - Cluster 174 :       43 samples ( 0.00%)
+ - Cluster 175 :       41 samples ( 0.00%)
+ - Cluster 176 :       40 samples ( 0.00%)
+ - Cluster 177 :       42 samples ( 0.00%)
+ - Cluster 178 :  117,783 samples ( 3.01%)
+ - Cluster 179 :  117,558 samples ( 3.00%)
+ - Cluster 180 :   34,432 samples ( 0.88%)
+ - Cluster 181 :   12,632 samples ( 0.32%)
+ - Cluster 182 :   19,352 samples ( 0.49%)
+ - Cluster 183 :   12,192 samples ( 0.31%)
+ - Cluster 184 :    2,752 samples ( 0.07%)
+ - Cluster 185 :    9,127 samples ( 0.23%)
+ - Cluster 186 :       46 samples ( 0.00%)
+ - Cluster 187 :      114 samples ( 0.00%)
+ - Cluster 188 :       41 samples ( 0.00%)
+ - Cluster 189 :      845 samples ( 0.02%)
+ - Cluster 190 :      177 samples ( 0.00%)
+ - Cluster 191 :      720 samples ( 0.02%)
+ - Cluster 192 :       41 samples ( 0.00%)
+ - Cluster 193 :      314 samples ( 0.01%)
+ - Cluster 194 :      899 samples ( 0.02%)
+ - Cluster 195 :      180 samples ( 0.00%)
+ - Cluster 196 :      296 samples ( 0.01%)
+ - Cluster 197 :       77 samples ( 0.00%)
+ - Cluster 198 :      460 samples ( 0.01%)
+ - Cluster 199 :       59 samples ( 0.00%)
+ - Cluster 200 :       60 samples ( 0.00%)
+ - Cluster 201 :       58 samples ( 0.00%)
+ - Cluster 202 :       21 samples ( 0.00%)
+ - Cluster 203 :       97 samples ( 0.00%)
+ - Cluster 204 :       58 samples ( 0.00%)
+ - Cluster 205 :       29 samples ( 0.00%)
+ - Cluster 206 :       62 samples ( 0.00%)
+ - Cluster 207 :       32 samples ( 0.00%)
+ - Cluster 208 :      130 samples ( 0.00%)
+ - Cluster 209 :      172 samples ( 0.00%)
+ - Cluster 210 :       63 samples ( 0.00%)
+ - Cluster 211 :       64 samples ( 0.00%)
+ - Cluster 212 :      259 samples ( 0.01%)
+ - Cluster 213 :      149 samples ( 0.00%)
+ - Cluster 214 :       56 samples ( 0.00%)
+ - Cluster 215 :      247 samples ( 0.01%)
+ - Cluster 216 :      185 samples ( 0.00%)
+ - Cluster 217 :      119 samples ( 0.00%)
+ - Cluster 218 :       63 samples ( 0.00%)
+ - Cluster 219 :       59 samples ( 0.00%)
+ - Cluster 220 :       60 samples ( 0.00%)
+ - Cluster 221 :       63 samples ( 0.00%)
+ - Cluster 222 :       61 samples ( 0.00%)
+ - Cluster 223 :       59 samples ( 0.00%)
+ - Cluster 224 :       23 samples ( 0.00%)
+ - Cluster 225 :      187 samples ( 0.00%)
+ - Cluster 226 :      111 samples ( 0.00%)
+ - Cluster 227 :       70 samples ( 0.00%)
+ - Cluster 228 :       57 samples ( 0.00%)
+ - Cluster 229 :      229 samples ( 0.01%)
+ - Cluster 230 :       63 samples ( 0.00%)
+ - Cluster 231 :       58 samples ( 0.00%)
+ - Cluster 232 :       54 samples ( 0.00%)
+ - Cluster 233 :       61 samples ( 0.00%)
+ - Cluster 234 :       57 samples ( 0.00%)
+ - Cluster 235 :       57 samples ( 0.00%)
+ - Cluster 236 :       31 samples ( 0.00%)
+ - Cluster 237 :       41 samples ( 0.00%)
+ - Cluster 238 :       41 samples ( 0.00%)
+ - Cluster 239 :       37 samples ( 0.00%)
+ - Cluster 240 :       21 samples ( 0.00%)
+ - Cluster 241 :       14 samples ( 0.00%)
+ - Cluster 242 :       30 samples ( 0.00%)
+ - Cluster 243 :       11 samples ( 0.00%)
+ - Cluster 244 :        6 samples ( 0.00%)
+ - Cluster 245 :       29 samples ( 0.00%)
+ - Cluster 246 :       26 samples ( 0.00%)
+ - Cluster 247 :       40 samples ( 0.00%)
+
+
+Summary:
+  Total samples:    3,917,901
+  Clusters found:   248
+  Clustered points: 3,917,341 (100.0%)
+  Noise points:     560 (0.0%)
+
+📊 Computing metrics on sample (50,000)...
+  Silhouette Score: 0.8906
+  Davies-Bouldin Index: 0.6929 (lower is better)
+
+======================================================================
+CLUSTER ANALYSIS
+======================================================================
+
+Label counts (including noise -1):
+ - NOISE       :      560 samples ( 0.01%)
+ - Cluster 0   :    2,086 samples ( 0.05%)
+ - Cluster 1   :   19,417 samples ( 0.50%)
+ - Cluster 2   : 1,490,078 samples (38.03%)
+ - Cluster 3   :   47,572 samples ( 1.21%)
+ - Cluster 4   :  182,284 samples ( 4.65%)
+ - Cluster 5   :   92,640 samples ( 2.36%)
+ - Cluster 6   :  258,219 samples ( 6.59%)
+ - Cluster 7   :   17,168 samples ( 0.44%)
+ - Cluster 8   :   19,266 samples ( 0.49%)
+ - Cluster 9   :    4,204 samples ( 0.11%)
+ - Cluster 10  :   36,230 samples ( 0.92%)
+ - Cluster 11  :  233,989 samples ( 5.97%)
+ - Cluster 12  :    9,565 samples ( 0.24%)
+ - Cluster 13  :    8,248 samples ( 0.21%)
+ - Cluster 14  :  175,557 samples ( 4.48%)
+ - Cluster 15  :   54,071 samples ( 1.38%)
+ - Cluster 16  :    4,837 samples ( 0.12%)
+ - Cluster 17  :      334 samples ( 0.01%)
+ - Cluster 18  :   11,335 samples ( 0.29%)
+ - Cluster 19  :    2,983 samples ( 0.08%)
+ - Cluster 20  :   11,361 samples ( 0.29%)
+ - Cluster 21  :   73,520 samples ( 1.88%)
+ - Cluster 22  :   15,135 samples ( 0.39%)
+ - Cluster 23  :   12,490 samples ( 0.32%)
+ - Cluster 24  :   29,210 samples ( 0.75%)
+ - Cluster 25  :   19,833 samples ( 0.51%)
+ - Cluster 26  :    5,682 samples ( 0.15%)
+ - Cluster 27  :   38,711 samples ( 0.99%)
+ - Cluster 28  :   13,410 samples ( 0.34%)
+ - Cluster 29  :   21,165 samples ( 0.54%)
+ - Cluster 30  :    1,923 samples ( 0.05%)
+ - Cluster 31  :    1,447 samples ( 0.04%)
+ - Cluster 32  :   15,796 samples ( 0.40%)
+ - Cluster 33  :    4,144 samples ( 0.11%)
+ - Cluster 34  :   15,167 samples ( 0.39%)
+ - Cluster 35  :      466 samples ( 0.01%)
+ - Cluster 36  :    3,621 samples ( 0.09%)
+ - Cluster 37  :    7,068 samples ( 0.18%)
+ - Cluster 38  :    1,840 samples ( 0.05%)
+ - Cluster 39  :   16,200 samples ( 0.41%)
+ - Cluster 40  :   11,131 samples ( 0.28%)
+ - Cluster 41  :   24,925 samples ( 0.64%)
+ - Cluster 42  :   11,396 samples ( 0.29%)
+ - Cluster 43  :  203,812 samples ( 5.20%)
+ - Cluster 44  :   50,025 samples ( 1.28%)
+ - Cluster 45  :   11,446 samples ( 0.29%)
+ - Cluster 46  :       39 samples ( 0.00%)
+ - Cluster 47  :      848 samples ( 0.02%)
+ - Cluster 48  :    5,736 samples ( 0.15%)
+ - Cluster 49  :    5,587 samples ( 0.14%)
+ - Cluster 50  :    3,230 samples ( 0.08%)
+ - Cluster 51  :    5,691 samples ( 0.15%)
+ - Cluster 52  :   15,118 samples ( 0.39%)
+ - Cluster 53  :   41,475 samples ( 1.06%)
+ - Cluster 54  :    4,195 samples ( 0.11%)
+ - Cluster 55  :    7,042 samples ( 0.18%)
+ - Cluster 56  :    1,890 samples ( 0.05%)
+ - Cluster 57  :    5,433 samples ( 0.14%)
+ - Cluster 58  :    3,203 samples ( 0.08%)
+ - Cluster 59  :      270 samples ( 0.01%)
+ - Cluster 60  :   16,873 samples ( 0.43%)
+ - Cluster 61  :    3,165 samples ( 0.08%)
+ - Cluster 62  :    5,412 samples ( 0.14%)
+ - Cluster 63  :    1,995 samples ( 0.05%)
+ - Cluster 64  :    5,730 samples ( 0.15%)
+ - Cluster 65  :   19,918 samples ( 0.51%)
+ - Cluster 66  :    6,706 samples ( 0.17%)
+ - Cluster 67  :    1,693 samples ( 0.04%)
+ - Cluster 68  :   37,546 samples ( 0.96%)
+ - Cluster 69  :    5,773 samples ( 0.15%)
+ - Cluster 70  :    5,729 samples ( 0.15%)
+ - Cluster 71  :    4,330 samples ( 0.11%)
+ - Cluster 72  :    7,040 samples ( 0.18%)
+ - Cluster 73  :    3,730 samples ( 0.10%)
+ - Cluster 74  :    1,335 samples ( 0.03%)
+ - Cluster 75  :    3,194 samples ( 0.08%)
+ - Cluster 76  :    2,096 samples ( 0.05%)
+ - Cluster 77  :    2,012 samples ( 0.05%)
+ - Cluster 78  :    3,775 samples ( 0.10%)
+ - Cluster 79  :      250 samples ( 0.01%)
+ - Cluster 80  :    2,331 samples ( 0.06%)
+ - Cluster 81  :      151 samples ( 0.00%)
+ - Cluster 82  :    1,579 samples ( 0.04%)
+ - Cluster 83  :    5,610 samples ( 0.14%)
+ - Cluster 84  :    1,223 samples ( 0.03%)
+ - Cluster 85  :      337 samples ( 0.01%)
+ - Cluster 86  :    1,793 samples ( 0.05%)
+ - Cluster 87  :      494 samples ( 0.01%)
+ - Cluster 88  :    1,798 samples ( 0.05%)
+ - Cluster 89  :    2,237 samples ( 0.06%)
+ - Cluster 90  :    2,104 samples ( 0.05%)
+ - Cluster 91  :    3,495 samples ( 0.09%)
+ - Cluster 92  :    1,577 samples ( 0.04%)
+ - Cluster 93  :      349 samples ( 0.01%)
+ - Cluster 94  :      203 samples ( 0.01%)
+ - Cluster 95  :    1,143 samples ( 0.03%)
+ - Cluster 96  :      771 samples ( 0.02%)
+ - Cluster 97  :    1,258 samples ( 0.03%)
+ - Cluster 98  :    1,344 samples ( 0.03%)
+ - Cluster 99  :       43 samples ( 0.00%)
+ - Cluster 100 :      465 samples ( 0.01%)
+ - Cluster 101 :       26 samples ( 0.00%)
+ - Cluster 102 :      274 samples ( 0.01%)
+ - Cluster 103 :    3,217 samples ( 0.08%)
+ - Cluster 104 :      425 samples ( 0.01%)
+ - Cluster 105 :      523 samples ( 0.01%)
+ - Cluster 106 :       79 samples ( 0.00%)
+ - Cluster 107 :      227 samples ( 0.01%)
+ - Cluster 108 :    9,784 samples ( 0.25%)
+ - Cluster 109 :      199 samples ( 0.01%)
+ - Cluster 110 :      340 samples ( 0.01%)
+ - Cluster 111 :       95 samples ( 0.00%)
+ - Cluster 112 :    1,313 samples ( 0.03%)
+ - Cluster 113 :      524 samples ( 0.01%)
+ - Cluster 114 :      655 samples ( 0.02%)
+ - Cluster 115 :       96 samples ( 0.00%)
+ - Cluster 116 :      101 samples ( 0.00%)
+ - Cluster 117 :    1,022 samples ( 0.03%)
+ - Cluster 118 :       41 samples ( 0.00%)
+ - Cluster 119 :      259 samples ( 0.01%)
+ - Cluster 120 :      212 samples ( 0.01%)
+ - Cluster 121 :      458 samples ( 0.01%)
+ - Cluster 122 :      145 samples ( 0.00%)
+ - Cluster 123 :       88 samples ( 0.00%)
+ - Cluster 124 :      158 samples ( 0.00%)
+ - Cluster 125 :       39 samples ( 0.00%)
+ - Cluster 126 :      258 samples ( 0.01%)
+ - Cluster 127 :       39 samples ( 0.00%)
+ - Cluster 128 :       56 samples ( 0.00%)
+ - Cluster 129 :       45 samples ( 0.00%)
+ - Cluster 130 :      117 samples ( 0.00%)
+ - Cluster 131 :       80 samples ( 0.00%)
+ - Cluster 132 :       62 samples ( 0.00%)
+ - Cluster 133 :      256 samples ( 0.01%)
+ - Cluster 134 :       43 samples ( 0.00%)
+ - Cluster 135 :      160 samples ( 0.00%)
+ - Cluster 136 :      128 samples ( 0.00%)
+ - Cluster 137 :      239 samples ( 0.01%)
+ - Cluster 138 :       80 samples ( 0.00%)
+ - Cluster 139 :       41 samples ( 0.00%)
+ - Cluster 140 :      153 samples ( 0.00%)
+ - Cluster 141 :       45 samples ( 0.00%)
+ - Cluster 142 :       41 samples ( 0.00%)
+ - Cluster 143 :       62 samples ( 0.00%)
+ - Cluster 144 :      260 samples ( 0.01%)
+ - Cluster 145 :       63 samples ( 0.00%)
+ - Cluster 146 :       86 samples ( 0.00%)
+ - Cluster 147 :       18 samples ( 0.00%)
+ - Cluster 148 :       82 samples ( 0.00%)
+ - Cluster 149 :       34 samples ( 0.00%)
+ - Cluster 150 :       34 samples ( 0.00%)
+ - Cluster 151 :       90 samples ( 0.00%)
+ - Cluster 152 :       67 samples ( 0.00%)
+ - Cluster 153 :       37 samples ( 0.00%)
+ - Cluster 154 :       40 samples ( 0.00%)
+ - Cluster 155 :       40 samples ( 0.00%)
+ - Cluster 156 :       81 samples ( 0.00%)
+ - Cluster 157 :       66 samples ( 0.00%)
+ - Cluster 158 :       52 samples ( 0.00%)
+ - Cluster 159 :       43 samples ( 0.00%)
+ - Cluster 160 :       42 samples ( 0.00%)
+ - Cluster 161 :       38 samples ( 0.00%)
+ - Cluster 162 :       40 samples ( 0.00%)
+ - Cluster 163 :       83 samples ( 0.00%)
+ - Cluster 164 :       45 samples ( 0.00%)
+ - Cluster 165 :      122 samples ( 0.00%)
+ - Cluster 166 :      116 samples ( 0.00%)
+ - Cluster 167 :       43 samples ( 0.00%)
+ - Cluster 168 :       48 samples ( 0.00%)
+ - Cluster 169 :       41 samples ( 0.00%)
+ - Cluster 170 :       86 samples ( 0.00%)
+ - Cluster 171 :       43 samples ( 0.00%)
+ - Cluster 172 :       39 samples ( 0.00%)
+ - Cluster 173 :       43 samples ( 0.00%)
+ - Cluster 174 :       43 samples ( 0.00%)
+ - Cluster 175 :       41 samples ( 0.00%)
+ - Cluster 176 :       40 samples ( 0.00%)
+ - Cluster 177 :       42 samples ( 0.00%)
+ - Cluster 178 :  117,783 samples ( 3.01%)
+ - Cluster 179 :  117,558 samples ( 3.00%)
+ - Cluster 180 :   34,432 samples ( 0.88%)
+ - Cluster 181 :   12,632 samples ( 0.32%)
+ - Cluster 182 :   19,352 samples ( 0.49%)
+ - Cluster 183 :   12,192 samples ( 0.31%)
+ - Cluster 184 :    2,752 samples ( 0.07%)
+ - Cluster 185 :    9,127 samples ( 0.23%)
+ - Cluster 186 :       46 samples ( 0.00%)
+ - Cluster 187 :      114 samples ( 0.00%)
+ - Cluster 188 :       41 samples ( 0.00%)
+ - Cluster 189 :      845 samples ( 0.02%)
+ - Cluster 190 :      177 samples ( 0.00%)
+ - Cluster 191 :      720 samples ( 0.02%)
+ - Cluster 192 :       41 samples ( 0.00%)
+ - Cluster 193 :      314 samples ( 0.01%)
+ - Cluster 194 :      899 samples ( 0.02%)
+ - Cluster 195 :      180 samples ( 0.00%)
+ - Cluster 196 :      296 samples ( 0.01%)
+ - Cluster 197 :       77 samples ( 0.00%)
+ - Cluster 198 :      460 samples ( 0.01%)
+ - Cluster 199 :       59 samples ( 0.00%)
+ - Cluster 200 :       60 samples ( 0.00%)
+ - Cluster 201 :       58 samples ( 0.00%)
+ - Cluster 202 :       21 samples ( 0.00%)
+ - Cluster 203 :       97 samples ( 0.00%)
+ - Cluster 204 :       58 samples ( 0.00%)
+ - Cluster 205 :       29 samples ( 0.00%)
+ - Cluster 206 :       62 samples ( 0.00%)
+ - Cluster 207 :       32 samples ( 0.00%)
+ - Cluster 208 :      130 samples ( 0.00%)
+ - Cluster 209 :      172 samples ( 0.00%)
+ - Cluster 210 :       63 samples ( 0.00%)
+ - Cluster 211 :       64 samples ( 0.00%)
+ - Cluster 212 :      259 samples ( 0.01%)
+ - Cluster 213 :      149 samples ( 0.00%)
+ - Cluster 214 :       56 samples ( 0.00%)
+ - Cluster 215 :      247 samples ( 0.01%)
+ - Cluster 216 :      185 samples ( 0.00%)
+ - Cluster 217 :      119 samples ( 0.00%)
+ - Cluster 218 :       63 samples ( 0.00%)
+ - Cluster 219 :       59 samples ( 0.00%)
+ - Cluster 220 :       60 samples ( 0.00%)
+ - Cluster 221 :       63 samples ( 0.00%)
+ - Cluster 222 :       61 samples ( 0.00%)
+ - Cluster 223 :       59 samples ( 0.00%)
+ - Cluster 224 :       23 samples ( 0.00%)
+ - Cluster 225 :      187 samples ( 0.00%)
+ - Cluster 226 :      111 samples ( 0.00%)
+ - Cluster 227 :       70 samples ( 0.00%)
+ - Cluster 228 :       57 samples ( 0.00%)
+ - Cluster 229 :      229 samples ( 0.01%)
+ - Cluster 230 :       63 samples ( 0.00%)
+ - Cluster 231 :       58 samples ( 0.00%)
+ - Cluster 232 :       54 samples ( 0.00%)
+ - Cluster 233 :       61 samples ( 0.00%)
+ - Cluster 234 :       57 samples ( 0.00%)
+ - Cluster 235 :       57 samples ( 0.00%)
+ - Cluster 236 :       31 samples ( 0.00%)
+ - Cluster 237 :       41 samples ( 0.00%)
+ - Cluster 238 :       41 samples ( 0.00%)
+ - Cluster 239 :       37 samples ( 0.00%)
+ - Cluster 240 :       21 samples ( 0.00%)
+ - Cluster 241 :       14 samples ( 0.00%)
+ - Cluster 242 :       30 samples ( 0.00%)
+ - Cluster 243 :       11 samples ( 0.00%)
+ - Cluster 244 :        6 samples ( 0.00%)
+ - Cluster 245 :       29 samples ( 0.00%)
+ - Cluster 246 :       26 samples ( 0.00%)
+ - Cluster 247 :       40 samples ( 0.00%)
+
+
+Summary:
+  Total samples:    3,917,901
+  Clusters found:   248
+  Clustered points: 3,917,341 (100.0%)
+  Noise points:     560 (0.0%)
+
+📊 Computing metrics on sample (50,000)...
+  Silhouette Score: 0.8906
+  Davies-Bouldin Index: 0.6929 (lower is better)
+
+
+
+
+
+Dataset bgl pca 128
+🔄 Computing k-distance (k=30)...
+   Sample size: 13,773
+
+
+📊 k-distance statistics:
+   50th percentile: 0.2025
+   60th percentile: 0.2166
+   70th percentile: 0.2327
+   80th percentile: 0.2619
+   85th percentile: 0.2859
+   90th percentile: 0.3320
+   95th percentile: 0.6245
+
+   Preparing sample for parameter search...
+Sample: 50,000 / 3,917,901
+
+Parameter grid:
+  eps: 8 values [0.2448 - 0.8814]
+  min_samples: [5, 10, 15, 20, 30]
+  Total: 40 combinations
+  Algorithm: 🎮 cuML DBSCAN (GPU)
+
+Grid search:   2%|▋                          | 1/40 [00:32<21:23, 32.92s/config]
+
+  eps=0.2448, ms= 5 → clusters=193, noise=  0.8%, sil=0.8825 (32.80s)
+
+Grid search:   5%|█▎                         | 2/40 [01:05<20:42, 32.70s/config]
+
+  eps=0.2448, ms=10 → clusters=162, noise=  1.2%, sil=0.8820 (32.48s)
+
+Grid search:   8%|██                         | 3/40 [01:37<19:54, 32.29s/config]
+
+  eps=0.2448, ms=15 → clusters=146, noise=  1.8%, sil=0.8815 (31.74s)
+
+Grid search:  10%|██▋                        | 4/40 [02:09<19:17, 32.17s/config]
+
+  eps=0.2448, ms=20 → clusters=134, noise=  2.4%, sil=0.8798 (31.91s)
+
+Grid search:  12%|███▍                       | 5/40 [02:41<18:44, 32.13s/config]
+
+  eps=0.2448, ms=30 → clusters=107, noise=  4.1%, sil=0.8687 (31.99s)
+
+Grid search:  15%|████                       | 6/40 [03:13<18:11, 32.11s/config]
+
+  eps=0.3357, ms= 5 → clusters=149, noise=  0.4%, sil=0.9007 (32.02s)
+
+Grid search:  18%|████▋                      | 7/40 [03:45<17:38, 32.08s/config]
+
+  eps=0.3357, ms=10 → clusters=134, noise=  0.6%, sil=0.8990 (31.95s)
+
+Grid search:  20%|█████▍                     | 8/40 [04:17<17:03, 31.99s/config]
+
+  eps=0.3357, ms=15 → clusters=121, noise=  0.9%, sil=0.8961 (31.73s)
+
+Grid search:  22%|██████                     | 9/40 [04:49<16:31, 31.97s/config]
+
+  eps=0.3357, ms=20 → clusters=115, noise=  1.2%, sil=0.8932 (31.87s)
+
+Grid search:  25%|██████▌                   | 10/40 [05:20<15:58, 31.94s/config]
+
+  eps=0.3357, ms=30 → clusters=94, noise=  2.3%, sil=0.8805 (31.80s)
+
+Grid search:  28%|███████▏                  | 11/40 [05:52<15:24, 31.88s/config]
+
+  eps=0.4267, ms= 5 → clusters=116, noise=  0.4%, sil=0.8918 (31.67s)
+
+Grid search:  30%|███████▊                  | 12/40 [06:24<14:50, 31.82s/config]
+
+  eps=0.4267, ms=10 → clusters=106, noise=  0.5%, sil=0.8905 (31.61s)
+
+Grid search:  32%|████████▍                 | 13/40 [06:56<14:20, 31.86s/config]
+
+  eps=0.4267, ms=15 → clusters=99, noise=  0.7%, sil=0.8889 (31.89s)
+
+Grid search:  35%|█████████                 | 14/40 [07:28<13:51, 31.96s/config]
+
+  eps=0.4267, ms=20 → clusters=94, noise=  0.8%, sil=0.8868 (32.14s)
+
+Grid search:  38%|█████████▊                | 15/40 [08:00<13:20, 32.01s/config]
+
+  eps=0.4267, ms=30 → clusters=80, noise=  1.5%, sil=0.8794 (32.04s)
+
+Grid search:  40%|██████████▍               | 16/40 [08:32<12:45, 31.90s/config]
+
+  eps=0.5176, ms= 5 → clusters=90, noise=  0.2%, sil=0.8449 (31.60s)
+
+Grid search:  42%|███████████               | 17/40 [09:04<12:15, 31.99s/config]
+
+  eps=0.5176, ms=10 → clusters=78, noise=  0.4%, sil=0.8449 (32.13s)
+
+Grid search:  45%|███████████▋              | 18/40 [09:36<11:41, 31.89s/config]
+
+  eps=0.5176, ms=15 → clusters=72, noise=  0.5%, sil=0.8445 (31.60s)
+
+Grid search:  48%|████████████▎             | 19/40 [10:08<11:10, 31.94s/config]
+
+  eps=0.5176, ms=20 → clusters=68, noise=  0.7%, sil=0.8428 (31.99s)
+
+Grid search:  50%|█████████████             | 20/40 [10:40<10:38, 31.93s/config]
+
+  eps=0.5176, ms=30 → clusters=59, noise=  1.1%, sil=0.8406 (31.84s)
+
+Grid search:  52%|█████████████▋            | 21/40 [11:13<10:14, 32.33s/config]
+
+  eps=0.6086, ms= 5 → clusters=56, noise=  0.2%, sil=0.5388 (33.21s)
+
+Grid search:  55%|██████████████▎           | 22/40 [11:45<09:43, 32.40s/config]
+
+  eps=0.6086, ms=10 → clusters=50, noise=  0.3%, sil=0.5425 (32.48s)
+
+Grid search:  57%|██████████████▉           | 23/40 [12:18<09:13, 32.55s/config]
+
+  eps=0.6086, ms=15 → clusters=46, noise=  0.4%, sil=0.5427 (32.83s)
+
+Grid search:  60%|███████████████▌          | 24/40 [12:51<08:41, 32.59s/config]
+
+  eps=0.6086, ms=20 → clusters=42, noise=  0.5%, sil=0.5411 (32.63s)
+
+Grid search:  62%|████████████████▎         | 25/40 [13:24<08:11, 32.74s/config]
+
+  eps=0.6086, ms=30 → clusters=36, noise=  0.8%, sil=0.5388 (33.02s)
+
+Grid search:  65%|████████████████▉         | 26/40 [13:58<07:42, 33.02s/config]
+
+  eps=0.6995, ms= 5 → clusters=32, noise=  0.1%, sil=0.3093 (33.62s)
+
+Grid search:  68%|█████████████████▌        | 27/40 [14:31<07:10, 33.13s/config]
+
+  eps=0.6995, ms=10 → clusters=30, noise=  0.1%, sil=0.3145 (33.32s)
+
+Grid search:  70%|██████████████████▏       | 28/40 [15:05<06:38, 33.24s/config]
+
+  eps=0.6995, ms=15 → clusters=28, noise=  0.2%, sil=0.3150 (33.43s)
+
+Grid search:  72%|██████████████████▊       | 29/40 [15:39<06:08, 33.49s/config]
+
+  eps=0.6995, ms=20 → clusters=26, noise=  0.3%, sil=0.3159 (33.99s)
+
+Grid search:  75%|███████████████████▌      | 30/40 [16:12<05:34, 33.45s/config]
+
+  eps=0.6995, ms=30 → clusters=23, noise=  0.4%, sil=0.3158 (33.30s)
+
+Grid search:  78%|████████████████████▏     | 31/40 [16:47<05:05, 33.99s/config]
+
+  eps=0.7905, ms= 5 → clusters=16, noise=  0.0%, sil=0.1448 (35.18s)
+
+Grid search:  80%|████████████████████▊     | 32/40 [17:22<04:33, 34.25s/config]
+
+  eps=0.7905, ms=10 → clusters=15, noise=  0.1%, sil=0.1464 (34.79s)
+
+Grid search:  82%|█████████████████████▍    | 33/40 [17:57<04:01, 34.46s/config]
+
+  eps=0.7905, ms=15 → clusters=15, noise=  0.1%, sil=0.1464 (34.87s)
+
+Grid search:  85%|██████████████████████    | 34/40 [18:32<03:27, 34.58s/config]
+
+  eps=0.7905, ms=20 → clusters=15, noise=  0.1%, sil=0.1464 (34.79s)
+
+Grid search:  88%|██████████████████████▊   | 35/40 [19:07<02:53, 34.62s/config]
+
+  eps=0.7905, ms=30 → clusters=13, noise=  0.2%, sil=0.1526 (34.64s)
+
+Grid search:  90%|███████████████████████▍  | 36/40 [19:42<02:19, 34.80s/config]
+
+  eps=0.8814, ms= 5 → clusters= 4, noise=  0.0%, sil=0.1742 (35.17s)
+
+Grid search:  92%|████████████████████████  | 37/40 [20:17<01:44, 34.95s/config]
+
+  eps=0.8814, ms=10 → clusters= 4, noise=  0.0%, sil=0.1743 (35.22s)
+
+Grid search:  95%|████████████████████████▋ | 38/40 [20:53<01:10, 35.04s/config]
+
+  eps=0.8814, ms=15 → clusters= 4, noise=  0.0%, sil=0.1743 (35.20s)
+
+Grid search:  98%|█████████████████████████▎| 39/40 [21:28<00:35, 35.08s/config]
+
+  eps=0.8814, ms=20 → clusters= 4, noise=  0.0%, sil=0.1743 (35.10s)
+
+Grid search: 100%|██████████████████████████| 40/40 [22:03<00:00, 33.09s/config]
+
+  eps=0.8814, ms=30 → clusters= 4, noise=  0.0%, sil=0.1743 (35.07s)
+
+======================================================================
+TOP 10 CONFIGURATIONS (by silhouette)
+======================================================================
+     eps  min_samples  n_clusters  noise_pct  silhouette
+0.335728            5         149      0.422    0.900687
+0.335728           10         134      0.634    0.899022
+0.335728           15         121      0.930    0.896070
+0.335728           20         115      1.178    0.893196
+0.426679            5         116      0.364    0.891815
+0.426679           10         106      0.494    0.890477
+0.426679           15          99      0.654    0.888885
+0.426679           20          94      0.834    0.886775
+0.244777            5         193      0.774    0.882467
+0.244777           10         162      1.228    0.882040
+
+======================================================================
+CONFIGURATIONS WITH LOW NOISE (<30%)
+======================================================================
+     eps  min_samples  n_clusters  noise_pct  silhouette
+0.335728            5         149      0.422    0.900687
+0.335728           10         134      0.634    0.899022
+0.335728           15         121      0.930    0.896070
+0.335728           20         115      1.178    0.893196
+0.426679            5         116      0.364    0.891815
+0.426679           10         106      0.494    0.890477
+0.426679           15          99      0.654    0.888885
+0.426679           20          94      0.834    0.886775
+0.244777            5         193      0.774    0.882467
+0.244777           10         162      1.228    0.882040
+
+======================================================================
+FINAL DBSCAN CONFIGURATION
+======================================================================
+Algorithm:   🎮 cuML DBSCAN (GPU)
+eps:         0.335728
+min_samples: 5
+metric:      euclidean (on normalized = cosine)
+Expected clusters: 149
+Expected noise:    0.4%
+Expected silhouette: 0.9007
+======================================================================
+
+📊 GPU Dataset Analysis:
+   Total samples: 3,917,901
+   Dataset size: 1.87 GB
+   GPU VRAM: 11.6 GB (usable: 8.1 GB)
+   Max batch size: 17,071,040 samples
+
+🚀 GPU Single-Pass Clustering
+   Processing 3,917,901 samples in one batch
+   Expected time: 5-15 minutes
+   → Transferring to GPU...
+   → Fitting DBSCAN on GPU...
+   ✅ GPU DBSCAN completed in 135.3 minutes!
+
+💾 Saving results...
+✅ Saved: dbscan_labels.npy (3,917,901 labels)
+✅ Saved: dbscan_config.npy
+
+📊 Final Clustering Results:
+   Total samples: 3,917,901
+   Clusters found: 357
+   Noise points: 612 (0.0%)
+   Clustered points: 3,917,289 (100.0%)
+
+======================================================================
+CLUSTER ANALYSIS
+======================================================================
+
+Label counts (including noise -1):
+ - NOISE       :      612 samples ( 0.02%)
+ - Cluster 0   :   92,640 samples ( 2.36%)
+ - Cluster 1   :      848 samples ( 0.02%)
+ - Cluster 2   : 1,490,078 samples (38.03%)
+ - Cluster 3   :   29,608 samples ( 0.76%)
+ - Cluster 4   :    3,955 samples ( 0.10%)
+ - Cluster 5   :  175,557 samples ( 4.48%)
+ - Cluster 6   :   24,925 samples ( 0.64%)
+ - Cluster 7   :    1,158 samples ( 0.03%)
+ - Cluster 8   :       37 samples ( 0.00%)
+ - Cluster 9   :   38,451 samples ( 0.98%)
+ - Cluster 10  :  258,219 samples ( 6.59%)
+ - Cluster 11  :    6,839 samples ( 0.17%)
+ - Cluster 12  :      117 samples ( 0.00%)
+ - Cluster 13  :    1,840 samples ( 0.05%)
+ - Cluster 14  :   36,228 samples ( 0.92%)
+ - Cluster 15  :      392 samples ( 0.01%)
+ - Cluster 16  :   47,572 samples ( 1.21%)
+ - Cluster 17  :   41,436 samples ( 1.06%)
+ - Cluster 18  :       40 samples ( 0.00%)
+ - Cluster 19  :      260 samples ( 0.01%)
+ - Cluster 20  :      216 samples ( 0.01%)
+ - Cluster 21  :      261 samples ( 0.01%)
+ - Cluster 22  :      510 samples ( 0.01%)
+ - Cluster 23  :      259 samples ( 0.01%)
+ - Cluster 24  :      776 samples ( 0.02%)
+ - Cluster 25  :      258 samples ( 0.01%)
+ - Cluster 26  :    5,724 samples ( 0.15%)
+ - Cluster 27  :    5,730 samples ( 0.15%)
+ - Cluster 28  :   11,440 samples ( 0.29%)
+ - Cluster 29  :    5,688 samples ( 0.15%)
+ - Cluster 30  :   11,391 samples ( 0.29%)
+ - Cluster 31  :    5,665 samples ( 0.14%)
+ - Cluster 32  :    5,691 samples ( 0.15%)
+ - Cluster 33  :    5,676 samples ( 0.14%)
+ - Cluster 34  :    5,672 samples ( 0.14%)
+ - Cluster 35  :    2,101 samples ( 0.05%)
+ - Cluster 36  :    2,093 samples ( 0.05%)
+ - Cluster 37  :    4,199 samples ( 0.11%)
+ - Cluster 38  :    2,086 samples ( 0.05%)
+ - Cluster 39  :    2,073 samples ( 0.05%)
+ - Cluster 40  :    2,067 samples ( 0.05%)
+ - Cluster 41  :    4,190 samples ( 0.11%)
+ - Cluster 42  :   16,195 samples ( 0.41%)
+ - Cluster 43  :       12 samples ( 0.00%)
+ - Cluster 44  :    9,154 samples ( 0.23%)
+ - Cluster 45  :   12,635 samples ( 0.32%)
+ - Cluster 46  :    5,726 samples ( 0.15%)
+ - Cluster 47  :    5,682 samples ( 0.15%)
+ - Cluster 48  :    5,657 samples ( 0.14%)
+ - Cluster 49  :    5,586 samples ( 0.14%)
+ - Cluster 50  :    1,912 samples ( 0.05%)
+ - Cluster 51  :    1,890 samples ( 0.05%)
+ - Cluster 52  :    1,257 samples ( 0.03%)
+ - Cluster 53  :    2,012 samples ( 0.05%)
+ - Cluster 54  :    5,610 samples ( 0.14%)
+ - Cluster 55  :    2,230 samples ( 0.06%)
+ - Cluster 56  :      349 samples ( 0.01%)
+ - Cluster 57  :      392 samples ( 0.01%)
+ - Cluster 58  :       43 samples ( 0.00%)
+ - Cluster 59  :       41 samples ( 0.00%)
+ - Cluster 60  :       43 samples ( 0.00%)
+ - Cluster 61  :       43 samples ( 0.00%)
+ - Cluster 62  :       43 samples ( 0.00%)
+ - Cluster 63  :       44 samples ( 0.00%)
+ - Cluster 64  :       34 samples ( 0.00%)
+ - Cluster 65  :       41 samples ( 0.00%)
+ - Cluster 66  :       40 samples ( 0.00%)
+ - Cluster 67  :       48 samples ( 0.00%)
+ - Cluster 68  :       45 samples ( 0.00%)
+ - Cluster 69  :       82 samples ( 0.00%)
+ - Cluster 70  :       41 samples ( 0.00%)
+ - Cluster 71  :       45 samples ( 0.00%)
+ - Cluster 72  :       38 samples ( 0.00%)
+ - Cluster 73  :       40 samples ( 0.00%)
+ - Cluster 74  :       80 samples ( 0.00%)
+ - Cluster 75  :       40 samples ( 0.00%)
+ - Cluster 76  :       41 samples ( 0.00%)
+ - Cluster 77  :       40 samples ( 0.00%)
+ - Cluster 78  :       79 samples ( 0.00%)
+ - Cluster 79  :       39 samples ( 0.00%)
+ - Cluster 80  :       41 samples ( 0.00%)
+ - Cluster 81  :       84 samples ( 0.00%)
+ - Cluster 82  :       87 samples ( 0.00%)
+ - Cluster 83  :       82 samples ( 0.00%)
+ - Cluster 84  :       81 samples ( 0.00%)
+ - Cluster 85  :       79 samples ( 0.00%)
+ - Cluster 86  :       39 samples ( 0.00%)
+ - Cluster 87  :       87 samples ( 0.00%)
+ - Cluster 88  :       44 samples ( 0.00%)
+ - Cluster 89  :       41 samples ( 0.00%)
+ - Cluster 90  :       81 samples ( 0.00%)
+ - Cluster 91  :       38 samples ( 0.00%)
+ - Cluster 92  :       41 samples ( 0.00%)
+ - Cluster 93  :       12 samples ( 0.00%)
+ - Cluster 94  :       41 samples ( 0.00%)
+ - Cluster 95  :       43 samples ( 0.00%)
+ - Cluster 96  :       40 samples ( 0.00%)
+ - Cluster 97  :       42 samples ( 0.00%)
+ - Cluster 98  :       84 samples ( 0.00%)
+ - Cluster 99  :       45 samples ( 0.00%)
+ - Cluster 100 :       41 samples ( 0.00%)
+ - Cluster 101 :       37 samples ( 0.00%)
+ - Cluster 102 :       85 samples ( 0.00%)
+ - Cluster 103 :       39 samples ( 0.00%)
+ - Cluster 104 :       41 samples ( 0.00%)
+ - Cluster 105 :       18 samples ( 0.00%)
+ - Cluster 106 :       44 samples ( 0.00%)
+ - Cluster 107 :       40 samples ( 0.00%)
+ - Cluster 108 :       40 samples ( 0.00%)
+ - Cluster 109 :       45 samples ( 0.00%)
+ - Cluster 110 :       46 samples ( 0.00%)
+ - Cluster 111 :       42 samples ( 0.00%)
+ - Cluster 112 :       39 samples ( 0.00%)
+ - Cluster 113 :       43 samples ( 0.00%)
+ - Cluster 114 :       42 samples ( 0.00%)
+ - Cluster 115 :       84 samples ( 0.00%)
+ - Cluster 116 :      122 samples ( 0.00%)
+ - Cluster 117 :    3,174 samples ( 0.08%)
+ - Cluster 118 :      523 samples ( 0.01%)
+ - Cluster 119 :      158 samples ( 0.00%)
+ - Cluster 120 :   15,152 samples ( 0.39%)
+ - Cluster 121 :   15,118 samples ( 0.39%)
+ - Cluster 122 :   15,135 samples ( 0.39%)
+ - Cluster 123 :   19,417 samples ( 0.50%)
+ - Cluster 124 :       18 samples ( 0.00%)
+ - Cluster 125 :       33 samples ( 0.00%)
+ - Cluster 126 :      987 samples ( 0.03%)
+ - Cluster 127 :      101 samples ( 0.00%)
+ - Cluster 128 :      145 samples ( 0.00%)
+ - Cluster 129 :       21 samples ( 0.00%)
+ - Cluster 130 :       17 samples ( 0.00%)
+ - Cluster 131 :       66 samples ( 0.00%)
+ - Cluster 132 :   19,830 samples ( 0.51%)
+ - Cluster 133 :   12,583 samples ( 0.32%)
+ - Cluster 134 :   12,490 samples ( 0.32%)
+ - Cluster 135 :   29,210 samples ( 0.75%)
+ - Cluster 136 :    5,433 samples ( 0.14%)
+ - Cluster 137 :    5,369 samples ( 0.14%)
+ - Cluster 138 :    5,365 samples ( 0.14%)
+ - Cluster 139 :    5,378 samples ( 0.14%)
+ - Cluster 140 :    5,412 samples ( 0.14%)
+ - Cluster 141 :    7,068 samples ( 0.18%)
+ - Cluster 142 :    5,367 samples ( 0.14%)
+ - Cluster 143 :    5,350 samples ( 0.14%)
+ - Cluster 144 :    5,392 samples ( 0.14%)
+ - Cluster 145 :    5,380 samples ( 0.14%)
+ - Cluster 146 :    5,344 samples ( 0.14%)
+ - Cluster 147 :       61 samples ( 0.00%)
+ - Cluster 148 :    1,140 samples ( 0.03%)
+ - Cluster 149 :       86 samples ( 0.00%)
+ - Cluster 150 :    6,706 samples ( 0.17%)
+ - Cluster 151 :       44 samples ( 0.00%)
+ - Cluster 152 :       43 samples ( 0.00%)
+ - Cluster 153 :       41 samples ( 0.00%)
+ - Cluster 154 :   13,409 samples ( 0.34%)
+ - Cluster 155 :       53 samples ( 0.00%)
+ - Cluster 156 :       56 samples ( 0.00%)
+ - Cluster 157 :        9 samples ( 0.00%)
+ - Cluster 158 :       52 samples ( 0.00%)
+ - Cluster 159 :      619 samples ( 0.02%)
+ - Cluster 160 :        9 samples ( 0.00%)
+ - Cluster 161 :        8 samples ( 0.00%)
+ - Cluster 162 :       17 samples ( 0.00%)
+ - Cluster 163 :      250 samples ( 0.01%)
+ - Cluster 164 :       82 samples ( 0.00%)
+ - Cluster 165 :       41 samples ( 0.00%)
+ - Cluster 166 :       21 samples ( 0.00%)
+ - Cluster 167 :       17 samples ( 0.00%)
+ - Cluster 168 :    1,313 samples ( 0.03%)
+ - Cluster 169 :    1,227 samples ( 0.03%)
+ - Cluster 170 :    6,668 samples ( 0.17%)
+ - Cluster 171 :      270 samples ( 0.01%)
+ - Cluster 172 :    3,165 samples ( 0.08%)
+ - Cluster 173 :    1,693 samples ( 0.04%)
+ - Cluster 174 :      158 samples ( 0.00%)
+ - Cluster 175 :        6 samples ( 0.00%)
+ - Cluster 176 :        5 samples ( 0.00%)
+ - Cluster 177 :        5 samples ( 0.00%)
+ - Cluster 178 :        5 samples ( 0.00%)
+ - Cluster 179 :    3,228 samples ( 0.08%)
+ - Cluster 180 :    3,192 samples ( 0.08%)
+ - Cluster 181 :    3,203 samples ( 0.08%)
+ - Cluster 182 :    3,217 samples ( 0.08%)
+ - Cluster 183 :    6,425 samples ( 0.16%)
+ - Cluster 184 :    1,995 samples ( 0.05%)
+ - Cluster 185 :    1,692 samples ( 0.04%)
+ - Cluster 186 :    1,666 samples ( 0.04%)
+ - Cluster 187 :    1,692 samples ( 0.04%)
+ - Cluster 188 :    1,691 samples ( 0.04%)
+ - Cluster 189 :    3,027 samples ( 0.08%)
+ - Cluster 190 :       39 samples ( 0.00%)
+ - Cluster 191 :  233,989 samples ( 5.97%)
+ - Cluster 192 :    3,213 samples ( 0.08%)
+ - Cluster 193 :    1,673 samples ( 0.04%)
+ - Cluster 194 :       24 samples ( 0.00%)
+ - Cluster 195 :      489 samples ( 0.01%)
+ - Cluster 196 :      151 samples ( 0.00%)
+ - Cluster 197 :       56 samples ( 0.00%)
+ - Cluster 198 :       59 samples ( 0.00%)
+ - Cluster 199 :        7 samples ( 0.00%)
+ - Cluster 200 :    1,333 samples ( 0.03%)
+ - Cluster 201 :    1,341 samples ( 0.03%)
+ - Cluster 202 :       95 samples ( 0.00%)
+ - Cluster 203 :       24 samples ( 0.00%)
+ - Cluster 204 :      274 samples ( 0.01%)
+ - Cluster 205 :       18 samples ( 0.00%)
+ - Cluster 206 :    1,447 samples ( 0.04%)
+ - Cluster 207 :      157 samples ( 0.00%)
+ - Cluster 208 :    1,798 samples ( 0.05%)
+ - Cluster 209 :      583 samples ( 0.01%)
+ - Cluster 210 :       66 samples ( 0.00%)
+ - Cluster 211 :       13 samples ( 0.00%)
+ - Cluster 212 :      127 samples ( 0.00%)
+ - Cluster 213 :      744 samples ( 0.02%)
+ - Cluster 214 :      447 samples ( 0.01%)
+ - Cluster 215 :      150 samples ( 0.00%)
+ - Cluster 216 :      888 samples ( 0.02%)
+ - Cluster 217 :    1,107 samples ( 0.03%)
+ - Cluster 218 :       88 samples ( 0.00%)
+ - Cluster 219 :       10 samples ( 0.00%)
+ - Cluster 220 :      116 samples ( 0.00%)
+ - Cluster 221 :       10 samples ( 0.00%)
+ - Cluster 222 :   19,259 samples ( 0.49%)
+ - Cluster 223 :        8 samples ( 0.00%)
+ - Cluster 224 :      893 samples ( 0.02%)
+ - Cluster 225 :      340 samples ( 0.01%)
+ - Cluster 226 :      337 samples ( 0.01%)
+ - Cluster 227 :    3,730 samples ( 0.10%)
+ - Cluster 228 :   16,870 samples ( 0.43%)
+ - Cluster 229 :       45 samples ( 0.00%)
+ - Cluster 230 :       10 samples ( 0.00%)
+ - Cluster 231 :    4,837 samples ( 0.12%)
+ - Cluster 232 :      145 samples ( 0.00%)
+ - Cluster 233 :      458 samples ( 0.01%)
+ - Cluster 234 :      203 samples ( 0.01%)
+ - Cluster 235 :    1,578 samples ( 0.04%)
+ - Cluster 236 :   73,518 samples ( 1.88%)
+ - Cluster 237 :      464 samples ( 0.01%)
+ - Cluster 238 :        7 samples ( 0.00%)
+ - Cluster 239 :        5 samples ( 0.00%)
+ - Cluster 240 :       53 samples ( 0.00%)
+ - Cluster 241 :       56 samples ( 0.00%)
+ - Cluster 242 :       54 samples ( 0.00%)
+ - Cluster 243 :      524 samples ( 0.01%)
+ - Cluster 244 :      171 samples ( 0.00%)
+ - Cluster 245 :        9 samples ( 0.00%)
+ - Cluster 246 :   37,546 samples ( 0.96%)
+ - Cluster 247 :    1,793 samples ( 0.05%)
+ - Cluster 248 :   50,025 samples ( 1.28%)
+ - Cluster 249 :    5,773 samples ( 0.15%)
+ - Cluster 250 :    3,775 samples ( 0.10%)
+ - Cluster 251 :    4,330 samples ( 0.11%)
+ - Cluster 252 :  182,291 samples ( 4.65%)
+ - Cluster 253 :  191,729 samples ( 4.89%)
+ - Cluster 254 :    4,913 samples ( 0.13%)
+ - Cluster 255 :    2,331 samples ( 0.06%)
+ - Cluster 256 :      459 samples ( 0.01%)
+ - Cluster 257 :       27 samples ( 0.00%)
+ - Cluster 258 :    8,246 samples ( 0.21%)
+ - Cluster 259 :       31 samples ( 0.00%)
+ - Cluster 260 :   12,192 samples ( 0.31%)
+ - Cluster 261 :    1,797 samples ( 0.05%)
+ - Cluster 262 :      419 samples ( 0.01%)
+ - Cluster 263 :       41 samples ( 0.00%)
+ - Cluster 264 :    2,752 samples ( 0.07%)
+ - Cluster 265 :       77 samples ( 0.00%)
+ - Cluster 266 :      845 samples ( 0.02%)
+ - Cluster 267 :      309 samples ( 0.01%)
+ - Cluster 268 :    7,128 samples ( 0.18%)
+ - Cluster 269 :       27 samples ( 0.00%)
+ - Cluster 270 :    3,115 samples ( 0.08%)
+ - Cluster 271 :    2,726 samples ( 0.07%)
+ - Cluster 272 :    3,082 samples ( 0.08%)
+ - Cluster 273 :    9,103 samples ( 0.23%)
+ - Cluster 274 :    9,127 samples ( 0.23%)
+ - Cluster 275 :    1,161 samples ( 0.03%)
+ - Cluster 276 :       27 samples ( 0.00%)
+ - Cluster 277 :        7 samples ( 0.00%)
+ - Cluster 278 :       30 samples ( 0.00%)
+ - Cluster 279 :       46 samples ( 0.00%)
+ - Cluster 280 :       63 samples ( 0.00%)
+ - Cluster 281 :       25 samples ( 0.00%)
+ - Cluster 282 :      177 samples ( 0.00%)
+ - Cluster 283 :      121 samples ( 0.00%)
+ - Cluster 284 :      114 samples ( 0.00%)
+ - Cluster 285 :       61 samples ( 0.00%)
+ - Cluster 286 :       58 samples ( 0.00%)
+ - Cluster 287 :       58 samples ( 0.00%)
+ - Cluster 288 :       59 samples ( 0.00%)
+ - Cluster 289 :       63 samples ( 0.00%)
+ - Cluster 290 :       64 samples ( 0.00%)
+ - Cluster 291 :       61 samples ( 0.00%)
+ - Cluster 292 :      111 samples ( 0.00%)
+ - Cluster 293 :      117 samples ( 0.00%)
+ - Cluster 294 :       59 samples ( 0.00%)
+ - Cluster 295 :       56 samples ( 0.00%)
+ - Cluster 296 :       57 samples ( 0.00%)
+ - Cluster 297 :       62 samples ( 0.00%)
+ - Cluster 298 :      125 samples ( 0.00%)
+ - Cluster 299 :       60 samples ( 0.00%)
+ - Cluster 300 :       64 samples ( 0.00%)
+ - Cluster 301 :       59 samples ( 0.00%)
+ - Cluster 302 :       61 samples ( 0.00%)
+ - Cluster 303 :       60 samples ( 0.00%)
+ - Cluster 304 :      114 samples ( 0.00%)
+ - Cluster 305 :      130 samples ( 0.00%)
+ - Cluster 306 :      117 samples ( 0.00%)
+ - Cluster 307 :       63 samples ( 0.00%)
+ - Cluster 308 :       56 samples ( 0.00%)
+ - Cluster 309 :       60 samples ( 0.00%)
+ - Cluster 310 :      117 samples ( 0.00%)
+ - Cluster 311 :       63 samples ( 0.00%)
+ - Cluster 312 :       55 samples ( 0.00%)
+ - Cluster 313 :       60 samples ( 0.00%)
+ - Cluster 314 :       58 samples ( 0.00%)
+ - Cluster 315 :       54 samples ( 0.00%)
+ - Cluster 316 :      119 samples ( 0.00%)
+ - Cluster 317 :       56 samples ( 0.00%)
+ - Cluster 318 :      721 samples ( 0.02%)
+ - Cluster 319 :       63 samples ( 0.00%)
+ - Cluster 320 :       57 samples ( 0.00%)
+ - Cluster 321 :       59 samples ( 0.00%)
+ - Cluster 322 :   34,432 samples ( 0.88%)
+ - Cluster 323 :       32 samples ( 0.00%)
+ - Cluster 324 :      900 samples ( 0.02%)
+ - Cluster 325 :        6 samples ( 0.00%)
+ - Cluster 326 :      159 samples ( 0.00%)
+ - Cluster 327 :      169 samples ( 0.00%)
+ - Cluster 328 :       57 samples ( 0.00%)
+ - Cluster 329 :       70 samples ( 0.00%)
+ - Cluster 330 :   12,631 samples ( 0.32%)
+ - Cluster 331 :       14 samples ( 0.00%)
+ - Cluster 332 :       97 samples ( 0.00%)
+ - Cluster 333 :      336 samples ( 0.01%)
+ - Cluster 334 :      129 samples ( 0.00%)
+ - Cluster 335 :       96 samples ( 0.00%)
+ - Cluster 336 :        7 samples ( 0.00%)
+ - Cluster 337 :       18 samples ( 0.00%)
+ - Cluster 338 :       44 samples ( 0.00%)
+ - Cluster 339 :        9 samples ( 0.00%)
+ - Cluster 340 :        9 samples ( 0.00%)
+ - Cluster 341 :        6 samples ( 0.00%)
+ - Cluster 342 :        7 samples ( 0.00%)
+ - Cluster 343 :       17 samples ( 0.00%)
+ - Cluster 344 :       21 samples ( 0.00%)
+ - Cluster 345 :       19 samples ( 0.00%)
+ - Cluster 346 :        7 samples ( 0.00%)
+ - Cluster 347 :        8 samples ( 0.00%)
+ - Cluster 348 :       14 samples ( 0.00%)
+ - Cluster 349 :  117,558 samples ( 3.00%)
+ - Cluster 350 :  117,783 samples ( 3.01%)
+ - Cluster 351 :      259 samples ( 0.01%)
+ - Cluster 352 :   19,352 samples ( 0.49%)
+ - Cluster 353 :        3 samples ( 0.00%)
+ - Cluster 354 :      899 samples ( 0.02%)
+ - Cluster 355 :      247 samples ( 0.01%)
+ - Cluster 356 :       29 samples ( 0.00%)
+
+Summary:
+  Total samples:    3,917,901
+  Clusters found:   357
+  Clustered points: 3,917,289 (100.0%)
+  Noise points:     612 (0.0%)
+
+📊 Computing metrics on sample (50,000)...
+
+
+dataset bgl pca 256
+🔄 Computing k-distance (k=30)...
+   Sample size: 13,773
+
+
+📊 k-distance statistics:
+   50th percentile: 0.1605
+   60th percentile: 0.1682
+   70th percentile: 0.1783
+   80th percentile: 0.1932
+   85th percentile: 0.2032
+   90th percentile: 0.2221
+   95th percentile: 0.3265
+  
+  Parameter grid:
+  eps: 8 values [0.1852 - 0.4847]
+  min_samples: [5, 10, 15, 20, 30]
+  Total: 40 combinations
+  Algorithm: 🎮 cuML DBSCAN (GPU)
+
+Grid search:   2%|▋                          | 1/40 [01:11<46:17, 71.22s/config]
+
+  eps=0.1852, ms= 5 → clusters=148, noise=  0.6%, sil=0.8742 (70.99s)
+
+Grid search:   5%|█▎                         | 2/40 [02:22<44:58, 71.00s/config]
+
+  eps=0.1852, ms=10 → clusters=135, noise=  1.0%, sil=0.8729 (70.78s)
+
+Grid search:   8%|██                         | 3/40 [03:32<43:41, 70.85s/config]
+
+  eps=0.1852, ms=15 → clusters=123, noise=  1.4%, sil=0.8716 (70.61s)
+
+Grid search:  10%|██▋                        | 4/40 [04:42<42:17, 70.47s/config]
+
+  eps=0.1852, ms=20 → clusters=117, noise=  1.8%, sil=0.8680 (69.82s)
+
+Grid search:  12%|███▍                       | 5/40 [05:52<40:57, 70.22s/config]
+
+  eps=0.1852, ms=30 → clusters=91, noise=  3.2%, sil=0.8574 (69.71s)
+
+Grid search:  15%|████                       | 6/40 [07:02<39:41, 70.04s/config]
+
+  eps=0.228, ms= 5 → clusters=116, noise=  0.3%, sil=0.8923 (69.62s)
+
+Grid search:  18%|████▋                      | 7/40 [08:12<38:30, 70.01s/config]
+
+  eps=0.228, ms=10 → clusters=104, noise=  0.5%, sil=0.8909 (69.88s)
+
+Grid search:  20%|█████▍                     | 8/40 [09:21<37:19, 69.98s/config]
+
+  eps=0.228, ms=15 → clusters=96, noise=  0.7%, sil=0.8891 (69.86s)
+
+Grid search:  22%|██████                     | 9/40 [10:31<36:08, 69.95s/config]
+
+  eps=0.228, ms=20 → clusters=91, noise=  0.9%, sil=0.8871 (69.79s)
+
+Grid search:  25%|██████▌                   | 10/40 [11:41<34:58, 69.94s/config]
+
+  eps=0.228, ms=30 → clusters=78, noise=  1.5%, sil=0.8804 (69.87s)
+
+Grid search:  28%|███████▏                  | 11/40 [12:51<33:50, 70.02s/config]
+
+  eps=0.2708, ms= 5 → clusters=89, noise=  0.3%, sil=0.8496 (70.11s)
+
+Grid search:  30%|███████▊                  | 12/40 [14:01<32:37, 69.91s/config]
+
+  eps=0.2708, ms=10 → clusters=80, noise=  0.4%, sil=0.8486 (69.62s)
+
+Grid search:  32%|████████▍                 | 13/40 [15:11<31:24, 69.80s/config]
+
+  eps=0.2708, ms=15 → clusters=73, noise=  0.6%, sil=0.8483 (69.48s)
+
+Grid search:  35%|█████████                 | 14/40 [16:22<30:27, 70.30s/config]
+
+  eps=0.2708, ms=20 → clusters=69, noise=  0.7%, sil=0.8467 (71.37s)
+
+Grid search:  38%|█████████▊                | 15/40 [17:34<29:28, 70.74s/config]
+
+  eps=0.2708, ms=30 → clusters=63, noise=  1.1%, sil=0.8441 (71.69s)
+
+Grid search:  40%|██████████▍               | 16/40 [18:44<28:14, 70.60s/config]
+
+  eps=0.3135, ms= 5 → clusters=57, noise=  0.2%, sil=0.5710 (70.22s)
+
+Grid search:  42%|███████████               | 17/40 [19:55<27:03, 70.59s/config]
+
+  eps=0.3135, ms=10 → clusters=52, noise=  0.2%, sil=0.5703 (70.50s)
+
+Grid search:  45%|███████████▋              | 18/40 [21:05<25:51, 70.53s/config]
+
+  eps=0.3135, ms=15 → clusters=47, noise=  0.4%, sil=0.5704 (70.31s)
+
+Grid search:  48%|████████████▎             | 19/40 [22:15<24:39, 70.47s/config]
+
+  eps=0.3135, ms=20 → clusters=44, noise=  0.5%, sil=0.5700 (70.27s)
+
+Grid search:  50%|█████████████             | 20/40 [23:26<23:29, 70.47s/config]
+
+  eps=0.3135, ms=30 → clusters=39, noise=  0.7%, sil=0.5695 (70.40s)
+
+Grid search:  52%|█████████████▋            | 21/40 [24:38<22:25, 70.82s/config]
+
+  eps=0.3563, ms= 5 → clusters=37, noise=  0.1%, sil=0.3005 (71.56s)
+
+Grid search:  55%|██████████████▎           | 22/40 [25:50<21:25, 71.43s/config]
+
+  eps=0.3563, ms=10 → clusters=31, noise=  0.2%, sil=0.3024 (72.80s)
+
+Grid search:  57%|██████████████▉           | 23/40 [27:02<20:14, 71.43s/config]
+
+  eps=0.3563, ms=15 → clusters=29, noise=  0.3%, sil=0.3019 (71.37s)
+
+Grid search:  60%|███████████████▌          | 24/40 [28:14<19:07, 71.69s/config]
+
+  eps=0.3563, ms=20 → clusters=28, noise=  0.3%, sil=0.3014 (72.24s)
+
+Grid search:  62%|████████████████▎         | 25/40 [29:26<17:55, 71.69s/config]
+
+  eps=0.3563, ms=30 → clusters=26, noise=  0.4%, sil=0.3076 (71.60s)
+
+Grid search:  65%|████████████████▉         | 26/40 [30:38<16:46, 71.88s/config]
+
+  eps=0.3991, ms= 5 → clusters=24, noise=  0.1%, sil=0.3040 (72.26s)
+
+Grid search:  68%|█████████████████▌        | 27/40 [31:51<15:37, 72.10s/config]
+
+  eps=0.3991, ms=10 → clusters=20, noise=  0.1%, sil=0.3169 (72.54s)
+
+Grid search:  70%|██████████████████▏       | 28/40 [33:03<14:24, 72.07s/config]
+
+  eps=0.3991, ms=15 → clusters=18, noise=  0.2%, sil=0.3164 (71.92s)
+
+Grid search:  72%|██████████████████▊       | 29/40 [34:16<13:14, 72.27s/config]
+
+  eps=0.3991, ms=20 → clusters=17, noise=  0.2%, sil=0.3160 (72.67s)
+
+Grid search:  75%|███████████████████▌      | 30/40 [35:28<12:02, 72.27s/config]
+
+  eps=0.3991, ms=30 → clusters=17, noise=  0.2%, sil=0.3160 (72.21s)
+
+Grid search:  78%|████████████████████▏     | 31/40 [36:41<10:52, 72.47s/config]
+
+  eps=0.4419, ms= 5 → clusters=14, noise=  0.0%, sil=0.2355 (72.88s)
+
+Grid search:  80%|████████████████████▊     | 32/40 [37:54<09:41, 72.67s/config]
+
+  eps=0.4419, ms=10 → clusters=12, noise=  0.1%, sil=0.2522 (73.08s)
+
+Grid search:  82%|█████████████████████▍    | 33/40 [39:07<08:29, 72.75s/config]
+
+  eps=0.4419, ms=15 → clusters=11, noise=  0.1%, sil=0.2522 (72.87s)
+
+Grid search:  85%|██████████████████████    | 34/40 [40:20<07:16, 72.80s/config]
+
+  eps=0.4419, ms=20 → clusters=10, noise=  0.2%, sil=0.2522 (72.84s)
+
+Grid search:  88%|██████████████████████▊   | 35/40 [41:33<06:04, 72.84s/config]
+
+  eps=0.4419, ms=30 → clusters=10, noise=  0.2%, sil=0.2522 (72.87s)
+
+Grid search:  90%|███████████████████████▍  | 36/40 [42:46<04:51, 72.89s/config]
+
+  eps=0.4847, ms= 5 → clusters= 5, noise=  0.0%, sil=0.2446 (72.93s)
+
+Grid search:  92%|████████████████████████  | 37/40 [43:59<03:39, 73.06s/config]
+
+  eps=0.4847, ms=10 → clusters= 5, noise=  0.0%, sil=0.2446 (73.38s)
+
+Grid search:  95%|████████████████████████▋ | 38/40 [45:12<02:26, 73.06s/config]
+
+  eps=0.4847, ms=15 → clusters= 5, noise=  0.0%, sil=0.2446 (73.01s)
+
+Grid search:  98%|█████████████████████████▎| 39/40 [46:26<01:13, 73.17s/config]
+
+  eps=0.4847, ms=20 → clusters= 5, noise=  0.0%, sil=0.2446 (73.36s)
+
+Grid search: 100%|██████████████████████████| 40/40 [47:39<00:00, 71.48s/config]
+
+  eps=0.4847, ms=30 → clusters= 5, noise=  0.0%, sil=0.2446 (73.02s)
+
+======================================================================
+TOP 10 CONFIGURATIONS (by silhouette)
+======================================================================
+     eps  min_samples  n_clusters  noise_pct  silhouette
+0.227972            5         116      0.330    0.892294
+0.227972           10         104      0.502    0.890921
+0.227972           15          96      0.684    0.889121
+0.227972           20          91      0.856    0.887141
+0.227972           30          78      1.528    0.880375
+0.185188            5         148      0.640    0.874212
+0.185188           10         135      0.976    0.872884
+0.185188           15         123      1.406    0.871570
+0.185188           20         117      1.760    0.867997
+0.185188           30          91      3.162    0.857437
+
+======================================================================
+CONFIGURATIONS WITH LOW NOISE (<30%)
+======================================================================
+     eps  min_samples  n_clusters  noise_pct  silhouette
+0.227972            5         116      0.330    0.892294
+0.227972           10         104      0.502    0.890921
+0.227972           15          96      0.684    0.889121
+0.227972           20          91      0.856    0.887141
+0.227972           30          78      1.528    0.880375
+0.185188            5         148      0.640    0.874212
+0.185188           10         135      0.976    0.872884
+0.185188           15         123      1.406    0.871570
+0.185188           20         117      1.760    0.867997
+0.185188           30          91      3.162    0.857437
+
+
+======================================================================
+FINAL DBSCAN CONFIGURATION
+======================================================================
+Algorithm:   🎮 cuML DBSCAN (GPU)
+eps:         0.227972
+min_samples: 5
+metric:      euclidean (on normalized = cosine)
+Expected clusters: 116
+Expected noise:    0.3%
+Expected silhouette: 0.8923
+======================================================================
+
+📊 GPU Dataset Analysis:
+   Total samples: 3,917,901
+   Dataset size: 11.21 GB
+   GPU VRAM: 11.6 GB (usable: 8.1 GB)
+   Max batch size: 2,845,173 samples
+
+🚀 GPU Batch Processing
+   2 batches of ~2,845,173 samples
+   Strategy: Fit on representative sample → k-NN assignment
+   Max fit samples (memory-safe): 948,391
+   Sampling ~474,195 from each of 2 batches
+
+   Step 1: Fitting on 948,390 samples
+   → Transferring 2.71 GB to GPU...
+   → GPU Memory: 0.00 GB used, 0.00 GB total
+   → Fitting DBSCAN on GPU (this may take 5-15 min)...
+   ✅ Fit completed in 13.5 minutes
+   Found 248 clusters
+
+   Step 2: Assigning 2,969,511 points via GPU k-NN
+
+GPU k-NN: 100%|███████████████████████████████| 6/6 [40:12<00:00, 402.16s/batch]
+
+   ✅ Assignment complete
+
+💾 Saving results...
+✅ Saved: dbscan_labels.npy (3,917,901 labels)
+✅ Saved: dbscan_config.npy
+
+📊 Final Clustering Results:
+   Total samples: 3,917,901
+   Clusters found: 248
+   Noise points: 560 (0.0%)
+   Clustered points: 3,917,341 (100.0%)
+======================================================================
+CLUSTER ANALYSIS
+======================================================================
+
+Label counts (including noise -1):
+ - NOISE       :      560 samples ( 0.01%)
+ - Cluster 0   :    2,086 samples ( 0.05%)
+ - Cluster 1   :   19,417 samples ( 0.50%)
+ - Cluster 2   : 1,490,078 samples (38.03%)
+ - Cluster 3   :   47,572 samples ( 1.21%)
+ - Cluster 4   :  182,284 samples ( 4.65%)
+ - Cluster 5   :   92,640 samples ( 2.36%)
+ - Cluster 6   :  258,219 samples ( 6.59%)
+ - Cluster 7   :   17,168 samples ( 0.44%)
+ - Cluster 8   :   19,266 samples ( 0.49%)
+ - Cluster 9   :    4,204 samples ( 0.11%)
+ - Cluster 10  :   36,230 samples ( 0.92%)
+ - Cluster 11  :  233,989 samples ( 5.97%)
+ - Cluster 12  :    9,565 samples ( 0.24%)
+ - Cluster 13  :    8,248 samples ( 0.21%)
+ - Cluster 14  :  175,557 samples ( 4.48%)
+ - Cluster 15  :   54,071 samples ( 1.38%)
+ - Cluster 16  :    4,837 samples ( 0.12%)
+ - Cluster 17  :      334 samples ( 0.01%)
+ - Cluster 18  :   11,335 samples ( 0.29%)
+ - Cluster 19  :    2,983 samples ( 0.08%)
+ - Cluster 20  :   11,361 samples ( 0.29%)
+ - Cluster 21  :   73,520 samples ( 1.88%)
+ - Cluster 22  :   15,135 samples ( 0.39%)
+ - Cluster 23  :   12,490 samples ( 0.32%)
+ - Cluster 24  :   29,210 samples ( 0.75%)
+ - Cluster 25  :   19,833 samples ( 0.51%)
+ - Cluster 26  :    5,682 samples ( 0.15%)
+ - Cluster 27  :   38,711 samples ( 0.99%)
+ - Cluster 28  :   13,410 samples ( 0.34%)
+ - Cluster 29  :   21,165 samples ( 0.54%)
+ - Cluster 30  :    1,923 samples ( 0.05%)
+ - Cluster 31  :    1,447 samples ( 0.04%)
+ - Cluster 32  :   15,796 samples ( 0.40%)
+ - Cluster 33  :    4,144 samples ( 0.11%)
+ - Cluster 34  :   15,167 samples ( 0.39%)
+ - Cluster 35  :      466 samples ( 0.01%)
+ - Cluster 36  :    3,621 samples ( 0.09%)
+ - Cluster 37  :    7,068 samples ( 0.18%)
+ - Cluster 38  :    1,840 samples ( 0.05%)
+ - Cluster 39  :   16,200 samples ( 0.41%)
+ - Cluster 40  :   11,131 samples ( 0.28%)
+ - Cluster 41  :   24,925 samples ( 0.64%)
+ - Cluster 42  :   11,396 samples ( 0.29%)
+ - Cluster 43  :  203,812 samples ( 5.20%)
+ - Cluster 44  :   50,025 samples ( 1.28%)
+ - Cluster 45  :   11,446 samples ( 0.29%)
+ - Cluster 46  :       39 samples ( 0.00%)
+ - Cluster 47  :      848 samples ( 0.02%)
+ - Cluster 48  :    5,736 samples ( 0.15%)
+ - Cluster 49  :    5,587 samples ( 0.14%)
+ - Cluster 50  :    3,230 samples ( 0.08%)
+ - Cluster 51  :    5,691 samples ( 0.15%)
+ - Cluster 52  :   15,118 samples ( 0.39%)
+ - Cluster 53  :   41,475 samples ( 1.06%)
+ - Cluster 54  :    4,195 samples ( 0.11%)
+ - Cluster 55  :    7,042 samples ( 0.18%)
+ - Cluster 56  :    1,890 samples ( 0.05%)
+ - Cluster 57  :    5,433 samples ( 0.14%)
+ - Cluster 58  :    3,203 samples ( 0.08%)
+ - Cluster 59  :      270 samples ( 0.01%)
+ - Cluster 60  :   16,873 samples ( 0.43%)
+ - Cluster 61  :    3,165 samples ( 0.08%)
+ - Cluster 62  :    5,412 samples ( 0.14%)
+ - Cluster 63  :    1,995 samples ( 0.05%)
+ - Cluster 64  :    5,730 samples ( 0.15%)
+ - Cluster 65  :   19,918 samples ( 0.51%)
+ - Cluster 66  :    6,706 samples ( 0.17%)
+ - Cluster 67  :    1,693 samples ( 0.04%)
+ - Cluster 68  :   37,546 samples ( 0.96%)
+ - Cluster 69  :    5,773 samples ( 0.15%)
+ - Cluster 70  :    5,729 samples ( 0.15%)
+ - Cluster 71  :    4,330 samples ( 0.11%)
+ - Cluster 72  :    7,040 samples ( 0.18%)
+ - Cluster 73  :    3,730 samples ( 0.10%)
+ - Cluster 74  :    1,335 samples ( 0.03%)
+ - Cluster 75  :    3,194 samples ( 0.08%)
+ - Cluster 76  :    2,096 samples ( 0.05%)
+ - Cluster 77  :    2,012 samples ( 0.05%)
+ - Cluster 78  :    3,775 samples ( 0.10%)
+ - Cluster 79  :      250 samples ( 0.01%)
+ - Cluster 80  :    2,331 samples ( 0.06%)
+ - Cluster 81  :      151 samples ( 0.00%)
+ - Cluster 82  :    1,579 samples ( 0.04%)
+ - Cluster 83  :    5,610 samples ( 0.14%)
+ - Cluster 84  :    1,223 samples ( 0.03%)
+ - Cluster 85  :      337 samples ( 0.01%)
+ - Cluster 86  :    1,793 samples ( 0.05%)
+ - Cluster 87  :      494 samples ( 0.01%)
+ - Cluster 88  :    1,798 samples ( 0.05%)
+ - Cluster 89  :    2,237 samples ( 0.06%)
+ - Cluster 90  :    2,104 samples ( 0.05%)
+ - Cluster 91  :    3,495 samples ( 0.09%)
+ - Cluster 92  :    1,577 samples ( 0.04%)
+ - Cluster 93  :      349 samples ( 0.01%)
+ - Cluster 94  :      203 samples ( 0.01%)
+ - Cluster 95  :    1,143 samples ( 0.03%)
+ - Cluster 96  :      771 samples ( 0.02%)
+ - Cluster 97  :    1,258 samples ( 0.03%)
+ - Cluster 98  :    1,344 samples ( 0.03%)
+ - Cluster 99  :       43 samples ( 0.00%)
+ - Cluster 100 :      465 samples ( 0.01%)
+ - Cluster 101 :       26 samples ( 0.00%)
+ - Cluster 102 :      274 samples ( 0.01%)
+ - Cluster 103 :    3,217 samples ( 0.08%)
+ - Cluster 104 :      425 samples ( 0.01%)
+ - Cluster 105 :      523 samples ( 0.01%)
+ - Cluster 106 :       79 samples ( 0.00%)
+ - Cluster 107 :      227 samples ( 0.01%)
+ - Cluster 108 :    9,784 samples ( 0.25%)
+ - Cluster 109 :      199 samples ( 0.01%)
+ - Cluster 110 :      340 samples ( 0.01%)
+ - Cluster 111 :       95 samples ( 0.00%)
+ - Cluster 112 :    1,313 samples ( 0.03%)
+ - Cluster 113 :      524 samples ( 0.01%)
+ - Cluster 114 :      655 samples ( 0.02%)
+ - Cluster 115 :       96 samples ( 0.00%)
+ - Cluster 116 :      101 samples ( 0.00%)
+ - Cluster 117 :    1,022 samples ( 0.03%)
+ - Cluster 118 :       41 samples ( 0.00%)
+ - Cluster 119 :      259 samples ( 0.01%)
+ - Cluster 120 :      212 samples ( 0.01%)
+ - Cluster 121 :      458 samples ( 0.01%)
+ - Cluster 122 :      145 samples ( 0.00%)
+ - Cluster 123 :       88 samples ( 0.00%)
+ - Cluster 124 :      158 samples ( 0.00%)
+ - Cluster 125 :       39 samples ( 0.00%)
+ - Cluster 126 :      258 samples ( 0.01%)
+ - Cluster 127 :       39 samples ( 0.00%)
+ - Cluster 128 :       56 samples ( 0.00%)
+ - Cluster 129 :       45 samples ( 0.00%)
+ - Cluster 130 :      117 samples ( 0.00%)
+ - Cluster 131 :       80 samples ( 0.00%)
+ - Cluster 132 :       62 samples ( 0.00%)
+ - Cluster 133 :      256 samples ( 0.01%)
+ - Cluster 134 :       43 samples ( 0.00%)
+ - Cluster 135 :      160 samples ( 0.00%)
+ - Cluster 136 :      128 samples ( 0.00%)
+ - Cluster 137 :      239 samples ( 0.01%)
+ - Cluster 138 :       80 samples ( 0.00%)
+ - Cluster 139 :       41 samples ( 0.00%)
+ - Cluster 140 :      153 samples ( 0.00%)
+ - Cluster 141 :       45 samples ( 0.00%)
+ - Cluster 142 :       41 samples ( 0.00%)
+ - Cluster 143 :       62 samples ( 0.00%)
+ - Cluster 144 :      260 samples ( 0.01%)
+ - Cluster 145 :       63 samples ( 0.00%)
+ - Cluster 146 :       86 samples ( 0.00%)
+ - Cluster 147 :       18 samples ( 0.00%)
+ - Cluster 148 :       82 samples ( 0.00%)
+ - Cluster 149 :       34 samples ( 0.00%)
+ - Cluster 150 :       34 samples ( 0.00%)
+ - Cluster 151 :       90 samples ( 0.00%)
+ - Cluster 152 :       67 samples ( 0.00%)
+ - Cluster 153 :       37 samples ( 0.00%)
+ - Cluster 154 :       40 samples ( 0.00%)
+ - Cluster 155 :       40 samples ( 0.00%)
+ - Cluster 156 :       81 samples ( 0.00%)
+ - Cluster 157 :       66 samples ( 0.00%)
+ - Cluster 158 :       52 samples ( 0.00%)
+ - Cluster 159 :       43 samples ( 0.00%)
+ - Cluster 160 :       42 samples ( 0.00%)
+ - Cluster 161 :       38 samples ( 0.00%)
+ - Cluster 162 :       40 samples ( 0.00%)
+ - Cluster 163 :       83 samples ( 0.00%)
+ - Cluster 164 :       45 samples ( 0.00%)
+ - Cluster 165 :      122 samples ( 0.00%)
+ - Cluster 166 :      116 samples ( 0.00%)
+ - Cluster 167 :       43 samples ( 0.00%)
+ - Cluster 168 :       48 samples ( 0.00%)
+ - Cluster 169 :       41 samples ( 0.00%)
+ - Cluster 170 :       86 samples ( 0.00%)
+ - Cluster 171 :       43 samples ( 0.00%)
+ - Cluster 172 :       39 samples ( 0.00%)
+ - Cluster 173 :       43 samples ( 0.00%)
+ - Cluster 174 :       43 samples ( 0.00%)
+ - Cluster 175 :       41 samples ( 0.00%)
+ - Cluster 176 :       40 samples ( 0.00%)
+ - Cluster 177 :       42 samples ( 0.00%)
+ - Cluster 178 :  117,783 samples ( 3.01%)
+ - Cluster 179 :  117,558 samples ( 3.00%)
+ - Cluster 180 :   34,432 samples ( 0.88%)
+ - Cluster 181 :   12,632 samples ( 0.32%)
+ - Cluster 182 :   19,352 samples ( 0.49%)
+ - Cluster 183 :   12,192 samples ( 0.31%)
+ - Cluster 184 :    2,752 samples ( 0.07%)
+ - Cluster 185 :    9,127 samples ( 0.23%)
+ - Cluster 186 :       46 samples ( 0.00%)
+ - Cluster 187 :      114 samples ( 0.00%)
+ - Cluster 188 :       41 samples ( 0.00%)
+ - Cluster 189 :      845 samples ( 0.02%)
+ - Cluster 190 :      177 samples ( 0.00%)
+ - Cluster 191 :      720 samples ( 0.02%)
+ - Cluster 192 :       41 samples ( 0.00%)
+ - Cluster 193 :      314 samples ( 0.01%)
+ - Cluster 194 :      899 samples ( 0.02%)
+ - Cluster 195 :      180 samples ( 0.00%)
+ - Cluster 196 :      296 samples ( 0.01%)
+ - Cluster 197 :       77 samples ( 0.00%)
+ - Cluster 198 :      460 samples ( 0.01%)
+ - Cluster 199 :       59 samples ( 0.00%)
+ - Cluster 200 :       60 samples ( 0.00%)
+ - Cluster 201 :       58 samples ( 0.00%)
+ - Cluster 202 :       21 samples ( 0.00%)
+ - Cluster 203 :       97 samples ( 0.00%)
+ - Cluster 204 :       58 samples ( 0.00%)
+ - Cluster 205 :       29 samples ( 0.00%)
+ - Cluster 206 :       62 samples ( 0.00%)
+ - Cluster 207 :       32 samples ( 0.00%)
+ - Cluster 208 :      130 samples ( 0.00%)
+ - Cluster 209 :      172 samples ( 0.00%)
+ - Cluster 210 :       63 samples ( 0.00%)
+ - Cluster 211 :       64 samples ( 0.00%)
+ - Cluster 212 :      259 samples ( 0.01%)
+ - Cluster 213 :      149 samples ( 0.00%)
+ - Cluster 214 :       56 samples ( 0.00%)
+ - Cluster 215 :      247 samples ( 0.01%)
+ - Cluster 216 :      185 samples ( 0.00%)
+ - Cluster 217 :      119 samples ( 0.00%)
+ - Cluster 218 :       63 samples ( 0.00%)
+ - Cluster 219 :       59 samples ( 0.00%)
+ - Cluster 220 :       60 samples ( 0.00%)
+ - Cluster 221 :       63 samples ( 0.00%)
+ - Cluster 222 :       61 samples ( 0.00%)
+ - Cluster 223 :       59 samples ( 0.00%)
+ - Cluster 224 :       23 samples ( 0.00%)
+ - Cluster 225 :      187 samples ( 0.00%)
+ - Cluster 226 :      111 samples ( 0.00%)
+ - Cluster 227 :       70 samples ( 0.00%)
+ - Cluster 228 :       57 samples ( 0.00%)
+ - Cluster 229 :      229 samples ( 0.01%)
+ - Cluster 230 :       63 samples ( 0.00%)
+ - Cluster 231 :       58 samples ( 0.00%)
+ - Cluster 232 :       54 samples ( 0.00%)
+ - Cluster 233 :       61 samples ( 0.00%)
+ - Cluster 234 :       57 samples ( 0.00%)
+ - Cluster 235 :       57 samples ( 0.00%)
+ - Cluster 236 :       31 samples ( 0.00%)
+ - Cluster 237 :       41 samples ( 0.00%)
+ - Cluster 238 :       41 samples ( 0.00%)
+ - Cluster 239 :       37 samples ( 0.00%)
+ - Cluster 240 :       21 samples ( 0.00%)
+ - Cluster 241 :       14 samples ( 0.00%)
+ - Cluster 242 :       30 samples ( 0.00%)
+ - Cluster 243 :       11 samples ( 0.00%)
+ - Cluster 244 :        6 samples ( 0.00%)
+ - Cluster 245 :       29 samples ( 0.00%)
+ - Cluster 246 :       26 samples ( 0.00%)
+ - Cluster 247 :       40 samples ( 0.00%)
+
+
+Summary:
+  Total samples:    3,917,901
+  Clusters found:   248
+  Clustered points: 3,917,341 (100.0%)
+  Noise points:     560 (0.0%)
+
+📊 Computing metrics on sample (50,000)...
+  Silhouette Score: 0.8906
+  Davies-Bouldin Index: 0.6929 (lower is better)
+
+
+Cluster size statistics:
+  Min:    6
+  Max:    1,490,078
+  Mean:   15,795.7
+  Median: 258.5
+
+
+
+
+
+
+

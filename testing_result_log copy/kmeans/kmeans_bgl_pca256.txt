@@ -1,0 +1,343 @@
+======================================================================
+COMPREHENSIVE CLUSTER TESTING PIPELINE
+2-CLASS GROUND TRUTH + 3-CLASS PREDICTION
+======================================================================
+
+Dataset: BGL
+Algorithm: kmeans
+Embedding: pca256
+Output directory: testing_results/bgl_kmeans_pca256
+Checkpoint directory: testing_results/bgl_kmeans_pca256/checkpoints
+
+📌 No checkpoint found - Starting from STEP 1
+
+======================================================================
+STEP 1: LOAD TRAINING CLUSTER RESULTS (UNSUPERVISED)
+======================================================================
+NOTE: No longer loading template-based labels - using pure clustering
+
+Loading cluster labels: kmeans/bgl_pca256_k_params/cluster_labels.npy
+   ✓ Loaded 3,917,901 cluster assignments
+
+Clusters found: 34
+Noise points: 0 (0.00%)
+
+======================================================================
+STEP 2: LOAD TRAINING EMBEDDINGS (for silhouette + k-NN)
+======================================================================
+
+Loading training embeddings: /media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_bgl_embeddings.npy
+   ✓ Shape: (3917901, 768)
+
+======================================================================
+STEP 3: ANALYZE CLUSTER CHARACTERISTICS (+ Silhouette Score)
+======================================================================
+
+🔍 Analyzing cluster characteristics (SEMI-SUPERVISED: Metadata-based labeling)...
+   K-Means adaptive thresholds:
+      ANOMALY if size < 7,835 (0.20% of train)
+      NON-NORMAL if size < 19,589 (0.50% of train, legacy)
+
+📖 Loading training metadata for cluster labeling...
+   Loading templates...
+   Loading template: bgl_normal_template.txt
+   ✓ Found 1 unique Labels
+   Loading template: bgl_nonNormal_template.txt
+   ✓ Found 2 unique Labels
+   Loading metadata TSV: after_preprocessed_bgl_meta.tsv
+   ✓ Loaded 3,917,901 metadata rows
+
+   Computing Silhouette scores...
+🚀 Attempting GPU silhouette computation via rapids-pip kernel...
+   Found Python: /home/bioinfo04/anaconda3/envs/rapids-pip/bin/python
+   Sampling 100,000 from 3,917,901 samples...
+   Launching GPU computation...
+⚠ GPU computation failed: GPU script failed: ✗ cuML import failed: cannot import name 'load_nvidia_dynamic_lib' from 'cuda.pathfinder' (unknown location)
+
+⚠ Falling back to CPU sklearn computation...
+✓ CPU silhouette complete: 0.7811
+
+Analyzing clusters: 100%|███████████████████████| 34/34 [00:01<00:00, 21.04it/s]
+
+
+======================================================================
+CLUSTER CHARACTERISTICS SUMMARY (SEMI-SUPERVISED: Metadata-based)
+======================================================================
+
+Total clusters: 34
+
+Cluster Labels (Metadata-based):
+  NORMAL      :   33 clusters, 3,860,180 samples
+  NON-NORMAL  :    1 clusters, 57,721 samples
+
+Labeling Reasons:
+  normal_majority     :   33 clusters
+  nonnormal_majority  :    1 clusters
+
+Cluster Size Statistics:
+  Mean:   115232
+  Median: 57750
+  Min:    12395
+  Max:    1,492,074
+
+Silhouette Score Statistics (excluding noise):
+  Overall Mean: 0.7811
+  Per-Cluster Mean: 0.0158
+  Per-Cluster Median: 0.0177
+  Per-Cluster Std: 0.0089
+  Per-Cluster Min: 0.0010
+  Per-Cluster Max: 0.0285
+
+  Interpretation:
+    > 0.7  : Strong structure, well-separated clusters
+    0.5-0.7: Reasonable structure
+    0.25-0.5: Weak structure, overlapping clusters
+    < 0.25 : No substantial structure
+
+✓ Cluster analysis saved to: testing_results/bgl_kmeans_pca256/cluster_analysis.csv
+
+======================================================================
+STEP 4: LOAD TESTING DATA (2-class ground truth)
+======================================================================
+
+📦 Loading 2 testing sets...
+   📌 Ground truth assigned based on set name (not template matching)
+
+  📂 Loading test set: normal
+     Embeddings: after_preprocessed_bgl_normal_pca256_embeddings.npy
+     ✓ Loaded embeddings: (555592, 256)
+     ✓ Ground truth: ALL 555,592 samples = NORMAL (0)
+
+  📂 Loading test set: nonnormal
+     Embeddings: after_preprocessed_bgl_non_normal_pca256_embeddings.npy
+     ✓ Loaded embeddings: (240000, 256)
+     ✓ Ground truth: ALL 240,000 samples = NON-NORMAL (1)
+
+✓ Combined testing data:
+  Total samples: 795,592
+  Embeddings shape: (795592, 256)
+
+======================================================================
+STEP 5: ASSIGN TEST SAMPLES TO CLUSTERS (k-NN)
+======================================================================
+
+Loading K-Means model...
+   ✓ Model loaded: KMeans
+
+Predicting cluster assignments for test data...
+   ✓ Assigned 795,592 test samples
+
+💾 Saving STEP 6 checkpoint...
+   ✓ Saved: step6_test_cluster_labels.npy
+
+======================================================================
+STEP 6: PREDICTION (SEMI-SUPERVISED: Metadata-based)
+======================================================================
+
+🎯 Predicting test samples (SEMI-SUPERVISED: Direct cluster lookup)...
+   Using metadata-labeled clusters...
+
+Predicting: 100%|███████████████████| 795592/795592 [00:02<00:00, 374121.17it/s]
+
+
+   ✓ Predicted 795,592 test samples
+
+   Prediction Methods Used:
+      metadata_normal     : 795,592 samples (100.0%)
+
+✓ Predictions saved to: testing_results/bgl_kmeans_pca256/predictions.npy
+
+💾 Saving STEP 6 checkpoint...
+   ✓ Saved: step7_predictions.npy
+   ✓ Saved: step7_confidence.npy
+   ✓ Saved: step7_methods.npy
+   ✓ Saved: checkpoint_metadata.pkl
+
+✅ All checkpoints saved! You can resume from STEP 8 if needed.
+
+======================================================================
+STEP 7: CALCULATE METRICS (2x3 confusion matrix)
+======================================================================
+
+📊 Calculating metrics...
+   Ground truth classes: [0, 1] → ['NORMAL', 'NON-NORMAL']
+   Prediction classes:   [0] → ['NORMAL']
+
+======================================================================
+OVERALL METRICS (2-CLASS GROUND TRUTH vs 3-CLASS PREDICTION)
+======================================================================
+
+Overall Accuracy: 0.6983
+
+Per-Class Metrics (Ground Truth Classes Only):
+                  Precision  Recall   F1-Score  Support
+  NORMAL          0.6983    1.0000    0.8224   555,592
+  NON-NORMAL      0.0000    0.0000    0.0000   240,000
+
+Macro Avg:          0.3492    0.5000    0.4112
+Weighted Avg:       0.4877    0.6983    0.5743
+
+Confusion Matrix (2x1):
+                 Predicted
+                      NO
+    True  NO [555592 ]
+    True  NO [240000 ]
+
+📊 Prediction Distribution:
+
+  NORMAL (555,592 samples):
+    → Predicted as NORMAL      : 555,592 (100.00%) ✓ Correct
+
+  NON-NORMAL (240,000 samples):
+    → Predicted as NORMAL      : 240,000 (100.00%) ✗ Wrong
+
+======================================================================
+PER-METHOD METRICS
+======================================================================
+
+METADATA_NORMAL: 795,592 samples (100.0%)
+  Distribution: NORMAL=555,592 NON-NORMAL=240,000
+  Accuracy: 0.6983
+
+✓ Metrics saved to: testing_results/bgl_kmeans_pca256/metrics.txt
+
+======================================================================
+STEP 9: SAVE DETAILED RESULTS
+======================================================================
+
+🔍 Debugging test_set_info:
+   normal      : [      0 → 555,592] = 555,592 samples
+   nonnormal   : [      1 → 240,001] = 240,000 samples
+
+   Total expected:  795,592
+   Total coverage:  795,592
+   ⚠️ Index mismatch for 'nonnormal': expected start=555,592, got 1
+   ⚠️ MISMATCH: Rebuilding test_set_info from actual data...
+      Rebuilt normal      : [      0 → 555,592] = 555,592 samples (from metadata)
+      Rebuilt nonnormal   : [555,592 → 795,592] = 240,000 samples (from metadata)
+
+📝 Assigning test set names...
+   ✓ normal      : assigned 555,592 samples [0 → 555,592)
+   ✓ nonnormal   : assigned 240,000 samples [555,592 → 795,592)
+
+   ✓ All samples successfully assigned!
+
+📏 Validating array lengths:
+   test_gt_labels:     795,592
+   test_cluster_labels: 795,592
+   predictions:        795,592
+   confidence:         795,592
+   methods:            795,592
+   test_set_names:     795,592
+✓ Detailed results saved to: testing_results/bgl_kmeans_pca256/detailed_results.csv
+  Total rows: 795,592
+
+📊 Per-Set Performance:
+   normal      : 1.0000 accuracy (555,592 samples)
+   nonnormal   : 0.0000 accuracy (240,000 samples)
+
+📈 Calculating per-set detailed metrics...
+✓ Per-set metrics saved to: testing_results/bgl_kmeans_pca256/per_set_metrics.csv
+
+======================================================================
+STEP 10: CREATE VISUALIZATIONS
+======================================================================
+
+📈 Creating visualizations...
+   ✓ Saved overview plot
+   ✓ Saved confusion matrix (2x1)
+
+======================================================================
+STEP 8: DETAILED PREDICTION DISTRIBUTION ANALYSIS
+======================================================================
+
+📊 Prediction Distribution by Ground Truth Class:
+======================================================================
+
+NORMAL Ground Truth (555,592 samples):
+----------------------------------------------------------------------
+  → Predicted as NORMAL      :  555,592 (100.00%) ✓ CORRECT
+
+  Summary:
+    Correct: 555,592 (100.00%)
+    Errors:  0 (0.00%)
+
+NON-NORMAL Ground Truth (240,000 samples):
+----------------------------------------------------------------------
+  → Predicted as NORMAL      :  240,000 (100.00%) ✗ ERROR
+
+  Summary:
+    Correct: 0 (0.00%)
+    Errors:  240,000 (100.00%)
+
+======================================================================
+🔍 Error Breakdown (Mispredictions):
+======================================================================
+
+NORMAL: No errors! 100% accuracy
+
+NON-NORMAL Errors (240,000 / 240,000 = 100.00%):
+----------------------------------------------------------------------
+  → Misclassified as NORMAL      :  240,000
+     (100.0% of errors, 100.00% of total NON-NORMAL)
+     Top methods: metadata_normal=240,000 
+
+======================================================================
+🔧 Error Analysis by Prediction Method:
+======================================================================
+
+METADATA_NORMAL Method (795,592 samples):
+----------------------------------------------------------------------
+  NORMAL      : 555,592 samples, 555,592 correct,       0 errors ( 0.00%)
+  NON-NORMAL  : 240,000 samples,       0 correct, 240,000 errors (100.00%)
+    → 240,000 misclassified as NORMAL
+
+======================================================================
+📂 Error Analysis by Test Set:
+======================================================================
+
+NONNORMAL Test Set (240,000 samples):
+----------------------------------------------------------------------
+
+  NON-NORMAL (240,000 samples):
+    ✗ → NORMAL      : 240,000 (100.00%)
+
+NORMAL Test Set (555,592 samples):
+----------------------------------------------------------------------
+
+  NORMAL (555,592 samples):
+    ✓ → NORMAL      : 555,592 (100.00%)
+
+======================================================================
+💾 Saving distribution statistics...
+✓ Distribution table saved: testing_results/bgl_kmeans_pca256/prediction_distribution.csv
+
+📊 Creating distribution visualizations...
+✓ Distribution plot saved: testing_results/bgl_kmeans_pca256/prediction_distribution.png
+
+======================================================================
+✓ Prediction distribution analysis complete!
+======================================================================
+
+======================================================================
+TESTING PIPELINE COMPLETED
+======================================================================
+
+✓ All results saved to: testing_results/bgl_kmeans_pca256
+
+Key files:
+  - Predictions:           predictions.npy
+  - Cluster analysis:      cluster_analysis.csv
+  - Metrics:               metrics.txt
+  - Per-set metrics:       per_set_metrics.csv
+  - Detailed results:      detailed_results.csv
+  - Prediction distribution: prediction_distribution.csv
+  - Visualizations:        analysis_overview.png, confusion_matrix.png, prediction_distribution.png
+
+🎯 Final Results:
+  Ground Truth: 2-class → ['NORMAL', 'NON-NORMAL']
+  Predictions:  1-class → ['NORMAL']
+  Overall Accuracy: 0.6983
+  NORMAL       F1:  0.8224
+  NON-NORMAL   F1:  0.0000
+  Macro Avg F1:     0.4112

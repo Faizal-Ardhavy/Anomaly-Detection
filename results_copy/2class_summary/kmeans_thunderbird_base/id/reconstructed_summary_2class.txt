@@ -1,0 +1,18 @@
+RECONSTRUCTED TESTING SUMMARY (2-CLASS)
+========================================================================
+Dataset: Thunderbird
+Algorithm: kmeans
+Embedding: base
+Overall Accuracy: 0.6989
+
+Per-Class Metrics:
+  NORMAL: precision=0.9975, recall=1.0000, f1=0.9987, support=1,392,530
+  ANOMALI: precision=0.0000, recall=0.0000, f1=0.0000, support=599,988
+
+Prediction Distribution:
+  NORMAL: 1,392,530 samples
+    NORMAL: 1,392,522 (100.00%)
+    ANOMALI: 8 (0.00%)
+  ANOMALI: 599,988 samples
+    NORMAL: 3,497 (0.58%)
+    ANOMALI: 596,491 (99.42%)

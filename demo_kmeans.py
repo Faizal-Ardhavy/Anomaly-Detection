@@ -2,7 +2,7 @@ import joblib
 import numpy as np
 from pathlib import Path
 from sentence_to_vector import log_to_vector
-from log_preprocessing import LogPreprocessor
+from anomaly_detection.log_processing.log_preprocessing import LogPreprocessor
 
 # ==============================================================================
 #           LANGKAH 1: MUAT MODEL DAN CENTROIDS DARI FILE

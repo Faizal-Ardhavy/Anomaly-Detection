@@ -1,0 +1,18 @@
+RECONSTRUCTED TESTING SUMMARY (2-CLASS)
+========================================================================
+Dataset: BGL
+Algorithm: kmeans
+Embedding: pca256
+Overall Accuracy: 0.8470
+
+Per-Class Metrics:
+  NORMAL: precision=0.8797, recall=0.9046, f1=0.8920, support=555,592
+  ANOMALI: precision=0.7636, recall=0.7136, f1=0.7378, support=240,000
+
+Prediction Distribution:
+  NORMAL: 555,592 samples
+    NORMAL: 502,572 (90.46%)
+    ANOMALI: 53,020 (9.54%)
+  ANOMALI: 240,000 samples
+    NORMAL: 68,726 (28.64%)
+    ANOMALI: 171,274 (71.36%)

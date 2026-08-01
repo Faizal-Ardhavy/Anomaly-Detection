@@ -1,0 +1,18 @@
+RECONSTRUCTED TESTING SUMMARY (2-CLASS)
+========================================================================
+Dataset: BGL
+Algorithm: dbscan
+Embedding: base
+Overall Accuracy: 0.8323
+
+Per-Class Metrics:
+  NORMAL: precision=0.9891, recall=0.9951, f1=0.9921, support=555,592
+  ANOMALI: precision=1.0000, recall=0.4554, f1=0.6258, support=240,000
+
+Prediction Distribution:
+  NORMAL: 555,592 samples
+    NORMAL: 552,879 (99.51%)
+    ANOMALI: 2,713 (0.49%)
+  ANOMALI: 240,000 samples
+    NORMAL: 6,105 (2.54%)
+    ANOMALI: 233,895 (97.46%)

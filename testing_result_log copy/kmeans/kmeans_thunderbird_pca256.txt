@@ -1,0 +1,373 @@
+STEP 2: LOAD TRAINING EMBEDDINGS (for silhouette + k-NN)
+======================================================================
+
+Loading training embeddings: /media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_thunderbird_pca256_embeddings.npy
+   ⚠️ File may contain pickled/unknown format — attempting fallbacks:
+   ⚠️ allow_pickle load failed: Failed to interpret file PosixPath('/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_thunderbird_pca256_embeddings.npy') as a pickle
+   🔎 Trying to interpret file as raw float32 binary (no .npy header)
+      possible shape: (208105405,256) based on file size
+      possible shape: (416210810,128) based on file size
+   ✓ Loading as raw memmap with shape=(208105405,256)
+   ✓ Shape: (208105405, 256)
+
+======================================================================
+STEP 3: ANALYZE CLUSTER CHARACTERISTICS (+ Silhouette Score)
+======================================================================
+
+🔍 Analyzing cluster characteristics (SEMI-SUPERVISED: Metadata-based labeling)...
+   K-Means adaptive thresholds:
+      Train samples: 208,105,405, clusters: 77, avg cluster size: 2,702,668
+      Base anomaly threshold: 416,210 (0.20% of train)
+      Avg-based anomaly threshold: 108,106 (4.00% of avg cluster)
+      FINAL ANOMALY if size < 108,106
+      Base non-normal threshold: 1,040,527 (0.50% of train)
+      Avg-based non-normal threshold: 324,320 (12.00% of avg cluster)
+      FINAL NON-NORMAL if size < 324,320
+
+📖 Loading training metadata for cluster labeling...
+   Loading templates...
+   Loading template: thunderbird_normal_template.txt
+   ✓ Found 1 unique Labels (column: Label)
+   Loading template: thunderbird_nonNormal_template.txt
+   ✓ Found 17 unique Labels (header at line 3)
+   Loading metadata TSV: after_preprocessed_thunderbird_meta.tsv
+   ✓ Reusing existing metadata labels memmap: after_preprocessed_thunderbird_meta.tsv.labels.npy
+   ✓ Metadata labels memmap shape: (208105405,)
+
+   Computing Silhouette scores...
+   Sampling 100,000 non-noise points from 208,105,405 for silhouette...
+🚀 Attempting GPU silhouette computation via rapids-pip kernel...
+   Found Python: /home/bioinfo04/anaconda3/envs/rapids-pip/bin/python
+   Launching GPU computation...
+⚠ GPU computation failed: GPU script failed: ✗ cuML import failed: cannot import name 'load_nvidia_dynamic_lib' from 'cuda.pathfinder' (unknown location)
+
+⚠ Falling back to CPU sklearn computation...
+✓ CPU silhouette complete: 0.5098
+   ✓ Computed sampled silhouette for 77 clusters
+
+Analyzing clusters: 100%|███████████████████████| 77/77 [00:30<00:00,  2.53it/s]
+
+
+======================================================================
+CLUSTER CHARACTERISTICS SUMMARY (SEMI-SUPERVISED: Metadata-based)
+======================================================================
+
+Total clusters: 77
+
+Cluster Labels (Metadata-based):
+  NORMAL      :   73 clusters, 205,407,302 samples
+  ANOMALY     :    4 clusters, 2,698,103 samples
+
+Labeling Reasons:
+  normal_majority     :   73 clusters
+  too_small           :    3 clusters
+  no_known_events     :    1 clusters
+
+Cluster Size Statistics:
+  Mean:   2702668
+  Median: 1473995
+  Min:    11696
+  Max:    11,237,361
+
+Silhouette Score Statistics (excluding noise):
+  Overall Mean: 0.5098
+  Per-Cluster Mean: 0.4846
+  Per-Cluster Median: 0.4008
+  Per-Cluster Std: 0.3870
+  Per-Cluster Min: -0.3930
+  Per-Cluster Max: 1.0000
+
+  Interpretation:
+    > 0.7  : Strong structure, well-separated clusters
+    0.5-0.7: Reasonable structure
+    0.25-0.5: Weak structure, overlapping clusters
+    < 0.25 : No substantial structure
+
+✓ Cluster analysis saved to: testing_results/thunderbird_kmeans_pca256/cluster_analysis.csv
+
+======================================================================
+STEP 4: LOAD TESTING DATA (2-class ground truth)
+======================================================================
+
+📦 Loading 2 testing sets...
+   📌 Ground truth assigned based on set name (not template matching)
+
+  📂 Loading test set: normal
+     Embeddings: after_preprocessed_thunderbird_normal_pca256_embeddings.npy
+     ✓ Loaded embeddings: (1392530, 256)
+     ✓ Ground truth: ALL 1,392,530 samples = NORMAL (0)
+
+  📂 Loading test set: nonnormal
+     Embeddings: after_preprocessed_thunderbird_non_normal_pca256_embeddings.npy
+     ✓ Loaded embeddings: (599988, 256)
+     ✓ Ground truth: ALL 599,988 samples = NON-NORMAL (1)
+
+✓ Combined testing data:
+  Total samples: 1,992,518
+  Embeddings shape: (1992518, 256)
+
+======================================================================
+STEP 5: ASSIGN TEST SAMPLES TO CLUSTERS (k-NN)
+======================================================================
+
+Loading K-Means model...
+   ⚠️ Detected NumPy RNG pickle compatibility issue. Retrying with compatibility patch...
+   ⚠️ K-Means model load failed: Failed to load model due to NumPy compatibility issue. Try using the same NumPy version used during training. Details: state is not a legacy MT19937 state
+   ⚠️ Falling back to centroid-based assignment from cluster labels
+
+Building centroid cache from training labels...
+
+   Building centroids: 100%|████████████████| 694/694 [1:00:20<00:00,  5.22s/it]
+
+   ✓ Saved centroid cache: kmeans_centroids_thunderbird_pca256_256d.npz
+
+Predicting cluster assignments for test data (centroid fallback)...
+
+   Assigning by centroids: 100%|██████████████| 100/100 [00:23<00:00,  4.24it/s]
+
+   ✓ Assigned 1,992,518 test samples
+
+💾 Saving STEP 6 checkpoint...
+   ✓ Saved: step6_test_cluster_labels.npy
+
+======================================================================
+STEP 6: PREDICTION (SEMI-SUPERVISED: Metadata-based)
+======================================================================
+
+🎯 Predicting test samples (SEMI-SUPERVISED: Direct cluster lookup)...
+   Using metadata-labeled clusters...
+
+Predicting: 100%|█████████████████| 1992518/1992518 [00:04<00:00, 419009.88it/s]
+
+
+   ✓ Predicted 1,992,518 test samples
+
+   Prediction Methods Used:
+      metadata_normal     : 1,991,502 samples (99.9%)
+      too_small           : 1,014 samples (0.1%)
+      no_known_events     : 2 samples (0.0%)
+
+✓ Predictions saved to: testing_results/thunderbird_kmeans_pca256/predictions.npy
+
+💾 Saving STEP 6 checkpoint...
+   ✓ Saved: step7_predictions.npy
+   ✓ Saved: step7_confidence.npy
+   ✓ Saved: step7_methods.npy
+   ✓ Saved: checkpoint_metadata.pkl
+
+✅ All checkpoints saved! You can resume from STEP 8 if needed.
+
+======================================================================
+STEP 7: CALCULATE METRICS (2x3 confusion matrix)
+======================================================================
+
+📊 Calculating metrics...
+   Ground truth classes: [0, 1] → ['NORMAL', 'NON-NORMAL']
+   Prediction classes:   [0, 2] → ['NORMAL', 'ANOMALY']
+
+======================================================================
+OVERALL METRICS (2-CLASS GROUND TRUTH vs 3-CLASS PREDICTION)
+======================================================================
+
+Overall Accuracy: 0.6984
+
+Per-Class Metrics (Ground Truth Classes Only):
+                  Precision  Recall   F1-Score  Support
+  NORMAL          0.6987    0.9993    0.8224   1,392,530
+  NON-NORMAL      0.0000    0.0000    0.0000   599,988
+
+Macro Avg:          0.3494    0.4996    0.4112
+Weighted Avg:       0.4883    0.6984    0.5748
+
+Confusion Matrix (2x2):
+                 Predicted
+                      NO     AN
+    True  NO [1391514      0 ]
+    True  NO [599988      0 ]
+
+📊 Prediction Distribution:
+
+  NORMAL (1,391,514 samples):
+    → Predicted as NORMAL      : 1,391,514 (100.00%) ✓ Correct
+    → Predicted as ANOMALY     :       0 ( 0.00%) ✗ Wrong
+
+  NON-NORMAL (599,988 samples):
+    → Predicted as NORMAL      : 599,988 (100.00%) ✗ Wrong
+    → Predicted as ANOMALY     :       0 ( 0.00%) ✗ Wrong
+
+======================================================================
+PER-METHOD METRICS
+======================================================================
+
+METADATA_NORMAL: 1,991,502 samples (99.9%)
+  Distribution: NORMAL=1,391,514 NON-NORMAL=599,988
+  Accuracy: 0.6987
+
+NO_KNOWN_EVENTS: 2 samples (0.0%)
+  Distribution: NORMAL=2 NON-NORMAL=0
+  Accuracy: 0.0000
+
+TOO_SMALL   : 1,014 samples (0.1%)
+  Distribution: NORMAL=1,014 NON-NORMAL=0
+  Accuracy: 0.0000
+
+✓ Metrics saved to: testing_results/thunderbird_kmeans_pca256/metrics.txt
+
+======================================================================
+STEP 9: SAVE DETAILED RESULTS
+======================================================================
+
+🔍 Debugging test_set_info:
+   normal      : [      0 → 1,392,530] = 1,392,530 samples
+   nonnormal   : [      1 → 599,989] = 599,988 samples
+
+   Total expected:  1,992,518
+   Total coverage:  1,992,518
+   ⚠️ Index mismatch for 'nonnormal': expected start=1,392,530, got 1
+   ⚠️ MISMATCH: Rebuilding test_set_info from actual data...
+      Rebuilt normal      : [      0 → 1,392,530] = 1,392,530 samples (from metadata)
+      Rebuilt nonnormal   : [1,392,530 → 1,992,518] = 599,988 samples (from metadata)
+
+📝 Assigning test set names...
+   ✓ normal      : assigned 1,392,530 samples [0 → 1,392,530)
+   ✓ nonnormal   : assigned 599,988 samples [1,392,530 → 1,992,518)
+
+   ✓ All samples successfully assigned!
+
+📏 Validating array lengths:
+   test_gt_labels:     1,992,518
+   test_cluster_labels: 1,992,518
+   predictions:        1,992,518
+   confidence:         1,992,518
+   methods:            1,992,518
+   test_set_names:     1,992,518
+✓ Detailed results saved to: testing_results/thunderbird_kmeans_pca256/detailed_results.csv
+  Total rows: 1,992,518
+
+📊 Per-Set Performance:
+   normal      : 0.9993 accuracy (1,392,530 samples)
+   nonnormal   : 0.0000 accuracy (599,988 samples)
+
+📈 Calculating per-set detailed metrics...
+✓ Per-set metrics saved to: testing_results/thunderbird_kmeans_pca256/per_set_metrics.csv
+
+======================================================================
+STEP 10: CREATE VISUALIZATIONS
+======================================================================
+
+📈 Creating visualizations...
+   ✓ Saved overview plot
+   ✓ Saved confusion matrix (2x2)
+
+======================================================================
+STEP 8: DETAILED PREDICTION DISTRIBUTION ANALYSIS
+======================================================================
+
+📊 Prediction Distribution by Ground Truth Class:
+======================================================================
+
+NORMAL Ground Truth (1,392,530 samples):
+----------------------------------------------------------------------
+  → Predicted as NORMAL      : 1,391,514 ( 99.93%) ✓ CORRECT
+  → Predicted as ANOMALY     :    1,016 (  0.07%) ✗ ERROR
+
+  Summary:
+    Correct: 1,391,514 (99.93%)
+    Errors:  1,016 (0.07%)
+
+NON-NORMAL Ground Truth (599,988 samples):
+----------------------------------------------------------------------
+  → Predicted as NORMAL      :  599,988 (100.00%) ✗ ERROR
+  → Predicted as ANOMALY     :        0 (  0.00%) ✗ ERROR
+
+  Summary:
+    Correct: 0 (0.00%)
+    Errors:  599,988 (100.00%)
+
+======================================================================
+🔍 Error Breakdown (Mispredictions):
+======================================================================
+
+NORMAL Errors (1,016 / 1,392,530 = 0.07%):
+----------------------------------------------------------------------
+  → Misclassified as ANOMALY     :    1,016
+     (100.0% of errors,  0.07% of total NORMAL)
+     Top methods: too_small=1,014 no_known_events=2 
+
+NON-NORMAL Errors (599,988 / 599,988 = 100.00%):
+----------------------------------------------------------------------
+  → Misclassified as NORMAL      :  599,988
+     (100.0% of errors, 100.00% of total NON-NORMAL)
+     Top methods: metadata_normal=599,988 
+
+======================================================================
+🔧 Error Analysis by Prediction Method:
+======================================================================
+
+METADATA_NORMAL Method (1,991,502 samples):
+----------------------------------------------------------------------
+  NORMAL      : 1,391,514 samples, 1,391,514 correct,       0 errors ( 0.00%)
+  NON-NORMAL  : 599,988 samples,       0 correct, 599,988 errors (100.00%)
+    → 599,988 misclassified as NORMAL
+
+NO_KNOWN_EVENTS Method (2 samples):
+----------------------------------------------------------------------
+  NORMAL      :       2 samples,       0 correct,       2 errors (100.00%)
+    →       2 misclassified as ANOMALY
+
+TOO_SMALL Method (1,014 samples):
+----------------------------------------------------------------------
+  NORMAL      :   1,014 samples,       0 correct,   1,014 errors (100.00%)
+    →   1,014 misclassified as ANOMALY
+
+======================================================================
+📂 Error Analysis by Test Set:
+======================================================================
+
+NONNORMAL Test Set (599,988 samples):
+----------------------------------------------------------------------
+
+  NON-NORMAL (599,988 samples):
+    ✗ → NORMAL      : 599,988 (100.00%)
+    ✗ → ANOMALY     :       0 (  0.00%)
+
+NORMAL Test Set (1,392,530 samples):
+----------------------------------------------------------------------
+
+  NORMAL (1,392,530 samples):
+    ✓ → NORMAL      : 1,391,514 ( 99.93%)
+    ✗ → ANOMALY     :   1,016 (  0.07%)
+
+======================================================================
+💾 Saving distribution statistics...
+✓ Distribution table saved: testing_results/thunderbird_kmeans_pca256/prediction_distribution.csv
+
+📊 Creating distribution visualizations...
+✓ Distribution plot saved: testing_results/thunderbird_kmeans_pca256/prediction_distribution.png
+
+======================================================================
+✓ Prediction distribution analysis complete!
+======================================================================
+
+======================================================================
+TESTING PIPELINE COMPLETED
+======================================================================
+
+✓ All results saved to: testing_results/thunderbird_kmeans_pca256
+
+Key files:
+  - Predictions:           predictions.npy
+  - Cluster analysis:      cluster_analysis.csv
+  - Metrics:               metrics.txt
+  - Per-set metrics:       per_set_metrics.csv
+  - Detailed results:      detailed_results.csv
+  - Prediction distribution: prediction_distribution.csv
+  - Visualizations:        analysis_overview.png, confusion_matrix.png, prediction_distribution.png
+
+🎯 Final Results:
+  Ground Truth: 2-class → ['NORMAL', 'NON-NORMAL']
+  Predictions:  2-class → ['NORMAL', 'ANOMALY']
+  Overall Accuracy: 0.6984
+  NORMAL       F1:  0.8224
+  NON-NORMAL   F1:  0.0000
+  Macro Avg F1:     0.4112
