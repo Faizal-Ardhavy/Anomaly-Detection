@@ -216,7 +216,10 @@ def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path=None
 
 def build_metadata_label_memmap(tsv_path, normal_events, nonnormal_events,
                                 memmap_path=None, chunksize=1_000_000):
-    """Build/reuse a compact uint8 memmap with per-row label codes (0=N, 1=NN, 2=other)."""
+    """Build/reuse a compact uint8 memmap with per-row label codes (0=N, 1=NN, 2=other).
+
+    NOTE: Kept for backward-compat but NOT used in main flow anymore.
+    """
     if memmap_path is None:
         memmap_path = OUTPUT_DIR / "metadata_labels.memmap"
     memmap_path = Path(memmap_path)
@@ -240,84 +243,6 @@ def build_metadata_label_memmap(tsv_path, normal_events, nonnormal_events,
             idx += 1
     mm.flush()
     return np.memmap(memmap_path, dtype=np.uint8, mode='r', shape=(n_rows,))
-
-
-def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path=None,
-                                    nonnormal_template_path=None):
-    """Read metadata TSV and assign per-sample 2-class label using template matching.
-
-    Strategy (matches cluster_testing_pipeline.py):
-    1. Load normal_events and nonnormal_events from template files
-    2. Read metadata 'label' column in chunks
-    3. For each row:
-       - label in normal_events   -> 0 (NORMAL)
-       - label in nonnormal_events -> 1 (ANOMALY)
-       - else                      -> 2 (UNKNOWN, treated as ANOMALY in 2-class)
-    """
-    print(f"   Reading metadata TSV: {Path(metadata_tsv_path).name}")
-
-    # Load templates first
-    if normal_template_path is None or nonnormal_template_path is None:
-        print(f"   ⚠️ No template paths provided, falling back to dash matching")
-        normal_events = {'-'}
-        nonnormal_events = set()
-    else:
-        normal_events = load_template_events(Path(normal_template_path))
-        nonnormal_events = load_template_events(Path(nonnormal_template_path))
-
-    print(f"   Template events: NORMAL={len(normal_events):,}, NON-NORMAL={len(nonnormal_events):,}")
-    if normal_events:
-        sample_normal = sorted(list(normal_events))[:10]
-        print(f"      Sample NORMAL Labels: {sample_normal}")
-    else:
-        # Normal template hanya berisi '-' (di-discard oleh template loader)
-        # Tambahkan '-' sebagai fallback untuk matching
-        normal_events = {'-'}
-        print(f"      Normal template empty, using '-' as NORMAL marker")
-    if nonnormal_events:
-        sample_nn = sorted(list(nonnormal_events))[:10]
-        print(f"      Sample NON-NORMAL Labels: {sample_nn}")
-
-    chunksize = 5_000_000
-    codes_list = []
-    sample_labels = []
-    total_rows = 0
-    matched_normal = 0
-    matched_anomaly = 0
-    matched_unknown = 0
-
-    for chunk in pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'],
-                              dtype=str, chunksize=chunksize):
-        chunk_codes = np.full(len(chunk), 2, dtype=np.uint8)  # default: UNKNOWN
-        vals = chunk['label'].values
-        for i, val in enumerate(vals):
-            if len(sample_labels) < 10:
-                sample_labels.append(repr(val)[:50])
-            if pd.isna(val):
-                chunk_codes[i] = 2
-                matched_unknown += 1
-            else:
-                tok = normalize_label_token(val)
-                if tok in normal_events:
-                    chunk_codes[i] = 0
-                    matched_normal += 1
-                elif tok in nonnormal_events:
-                    chunk_codes[i] = 1
-                    matched_anomaly += 1
-                else:
-                    matched_unknown += 1
-            total_rows += 1
-        codes_list.append(chunk_codes)
-
-    print(f"   Sample label values (first 10): {sample_labels}")
-    print(f"   Total rows processed: {total_rows:,}")
-    print(f"   NORMAL (in normal_events):     {matched_normal:,} ({matched_normal/total_rows*100:.2f}%)")
-    print(f"   ANOMALY (in nonnormal_events): {matched_anomaly:,} ({matched_anomaly/total_rows*100:.2f}%)")
-    print(f"   UNKNOWN:                       {matched_unknown:,} ({matched_unknown/total_rows*100:.2f}%)")
-
-    if not codes_list:
-        return np.array([], dtype=np.uint8)
-    return np.concatenate(codes_list)
 
 
 def _load_metadata_chunked(tsv_path, normal_events, nonnormal_events, chunksize=1_000_000):
