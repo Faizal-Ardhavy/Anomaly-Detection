@@ -49,10 +49,9 @@ urllib3==2.5.0
 # Install PyTorch FIRST from NVIDIA index, then faiss-gpu
 # =============================================================================
 
-# Step 1 (run separately, before pip install -r requirements.txt):
-#   pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
-#       --index-url https://download.pytorch.org/whl/cu126
+# Step 1 (run separately, BEFORE pip install -r requirements.txt):
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 
-# Step 2 (in this file):
-# GPU FAISS for cluster assignment (10-50x faster than CPU)
-faiss-gpu==1.7.2.post3
+# Step 2 (faiss - install separately, see instructions below):
+#   pip install faiss-cpu                # always works (slower)
+#   conda install -c conda-forge faiss-gpu=1.8.0   # GPU version (recommended)
