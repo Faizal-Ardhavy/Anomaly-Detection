@@ -1,0 +1,66 @@
+# =============================================================================
+# CONDA ENVIRONMENT FILE (GPU version for RTX 3060)
+# Install with: conda env create -f environment.yml
+# Activate with: conda activate anomaly_ssl
+# =============================================================================
+name: anomaly_ssl
+
+channels:
+  - rapidsai
+  - conda-forge
+  - nvidia
+  - pytorch
+  - defaults
+
+dependencies:
+  # Python version (match existing env: 3.11)
+  - python=3.11
+
+  # Core scientific stack
+  - numpy=2.3
+  - pandas=2.3
+  - scipy=1.16
+  - scikit-learn=1.7
+  - matplotlib=3.10
+  - seaborn=0.13
+  - tqdm=4.67
+  - joblib=1.5
+  - pyyaml=6.0
+  - python-dotenv=1.1
+  - pillow=11.0
+
+  # Deep learning (PyTorch with CUDA 12.x for RTX 3060)
+  - pytorch::pytorch=2.7
+  - pytorch::torchvision=0.22
+  - pytorch::torchaudio=2.7
+  - transformers=4.57
+  - huggingface_hub=0.35
+  - tokenizers=0.22
+  - safetensors=0.6
+
+  # GPU acceleration (RAPIDS)
+  - rapidsai::cuml=25.06
+  - rapidsai::cudf=25.06
+  - conda-forge::faiss-gpu=1.7.2
+  - conda-forge::cupy=13.0
+
+  # CUDA toolkit (required for GPU packages)
+  - nvidia::cuda-toolkit=12.6
+  - nvidia::cuda-runtime=12.6
+  - nvidia::cuda-cudart=12.6
+
+  # Pip-installed extras (cuML sometimes needs these)
+  - pip
+  - pip:
+    - regex==2025.9.18
+    - requests==2.32.5
+    - certifi==2025.10.5
+
+# =============================================================================
+# VERIFICATION COMMANDS (run after install):
+# =============================================================================
+#   conda activate anomaly_ssl
+#   python -c "import torch; print('CUDA:', torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+#   python -c "import faiss; print('FAISS GPU:', faiss.get_num_gpus())"
+#   python -c "import cuml; print('cuML:', cuml.__version__)"
+#   nvidia-smi  # check GPU memory usage
