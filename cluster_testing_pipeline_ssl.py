@@ -184,7 +184,7 @@ def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path=None
     matched_anomaly = 0
 
     for chunk in pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'],
-                              dtype=str, chunksize=chunksize):
+                              dtype=str, chunksize=chunksize, skipinitialspace=True):
         chunk_codes = np.ones(len(chunk), dtype=np.uint8)  # default: ANOMALY
         vals = chunk['label'].values
         for i, val in enumerate(vals):
@@ -192,14 +192,20 @@ def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path=None
                 sample_labels.append(repr(val)[:50])
             # Default ANOMALY, override to NORMAL only if '-' or empty
             if pd.isna(val):
-                chunk_codes[i] = 0
-                matched_normal += 1
+                # Truly missing label -> treat as ANOMALY (safer)
+                chunk_codes[i] = 1
+                matched_anomaly += 1
             else:
                 tok = str(val).strip()
-                if tok == '' or tok == '-':
+                if tok == '-':
                     chunk_codes[i] = 0
                     matched_normal += 1
+                elif tok == '':
+                    # Empty cell -> ANOMALY (safer)
+                    chunk_codes[i] = 1
+                    matched_anomaly += 1
                 else:
+                    chunk_codes[i] = 1
                     matched_anomaly += 1
             total_rows += 1
         codes_list.append(chunk_codes)
