@@ -159,39 +159,87 @@ def normalize_label_token(value) -> str:
 
 
 def load_template_events(template_path: Path) -> set:
-    """Extract EventId tokens from a template file (one per row, tab-separated).
+    """Load Label set from template TSV file (matches cluster_testing_pipeline.py logic).
 
     Template file format (BGL/Thunderbird):
       Normal:    LineId Label Timestamp Date Node ... EventId EventTemplate
       NonNormal: Label  Timestamp Date User  ... EventId EventTemplate
 
-    Returns a set of normalized EventId tokens (e.g., {'E77', 'E3', ...}).
+    Returns set of Label values (e.g., {'-', 'APPREAD', 'KERNDTLB', ...}).
     """
-    events = set()
+    print(f"   Loading template: {template_path.name}")
+
     if not template_path.exists():
-        return events
-    with open(template_path, 'r', encoding='utf-8', errors='ignore') as f:
-        header_line = f.readline()
-        if not header_line:
-            return events
-        header = header_line.strip().split('\t')
-        # Find EventId column index; fallback to second-to-last if header missing
-        if 'EventId' in header:
-            eventid_col = header.index('EventId')
-        elif 'EventTemplate' in header:
-            eventid_col = header.index('EventTemplate') - 1
-        else:
-            eventid_col = -2
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#'):
+        print(f"   ⚠️ Template file not found: {template_path}")
+        return set()
+
+    # Try to read with a TSV header first
+    try:
+        df = pd.read_csv(template_path, sep='\t', dtype=str, engine='python', encoding='utf-8')
+    except Exception:
+        df = None
+
+    # If dataframe loaded and has a Label-like column (case-insensitive), use it
+    if df is not None:
+        label_col = None
+        for col in df.columns:
+            if str(col).strip().lower() == 'label':
+                label_col = col
+                break
+        if label_col is not None:
+            label_set = set(df[label_col].map(normalize_label_token))
+            label_set.discard('')
+            print(f"   ✓ Found {len(label_set)} unique Labels (column: {label_col})")
+            return label_set
+
+    # Fallback: scan file to find header line containing 'Label'
+    header_idx = None
+    with open(template_path, 'r', encoding='utf-8', errors='replace') as f:
+        for i, line in enumerate(f):
+            line_stripped = line.strip()
+            if not line_stripped:
                 continue
-            cols = line.split('\t')
-            if len(cols) > abs(eventid_col):
-                token = cols[eventid_col].strip()
-                if token:
-                    events.add(normalize_label_token(token))
-    return events
+            if '\t' in line_stripped:
+                cols = [c.strip().lower() for c in line_stripped.split('\t')]
+                if 'label' in cols:
+                    header_idx = i
+                    break
+
+    if header_idx is not None:
+        try:
+            df2 = pd.read_csv(template_path, sep='\t', header=0, skiprows=header_idx,
+                              dtype=str, engine='python', encoding='utf-8')
+            label_col = None
+            for col in df2.columns:
+                if str(col).strip().lower() == 'label':
+                    label_col = col
+                    break
+            if label_col is not None:
+                label_set = set(df2[label_col].map(normalize_label_token))
+                label_set.discard('')
+                print(f"   ✓ Found {len(label_set)} unique Labels (header at line {header_idx+1})")
+                return label_set
+        except Exception as e:
+            print(f"   ⚠️ Failed to parse header at line {header_idx+1}: {e}")
+
+    # Last resort: extract first tab-separated column (skip "Total..." lines)
+    labels = []
+    with open(template_path, 'r', encoding='utf-8', errors='replace') as f:
+        for line in f:
+            s = line.strip()
+            if not s:
+                continue
+            if s.lower().startswith('total') and '=' in s:
+                continue
+            if '\t' in s:
+                labels.append(s.split('\t', 1)[0].strip())
+            else:
+                labels.append(s)
+
+    label_set = {normalize_label_token(v) for v in labels}
+    label_set.discard('')
+    print(f"   ✓ Inferred {len(label_set)} unique Labels (plain-line fallback)")
+    return label_set
 
 
 def build_metadata_label_memmap(tsv_path, normal_events, nonnormal_events,
@@ -224,16 +272,39 @@ def build_metadata_label_memmap(tsv_path, normal_events, nonnormal_events,
 
 def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path=None,
                                     nonnormal_template_path=None):
-    """Read metadata TSV and assign per-sample 2-class label.
+    """Read metadata TSV and assign per-sample 2-class label using template matching.
 
-    Rules:
-    - label column == '-' (or empty/NaN) -> 0 (NORMAL)
-    - label column == anything else      -> 1 (ANOMALY)
-
-    Templates are NOT used here (kept only for backward-compat signature).
+    Strategy (matches cluster_testing_pipeline.py):
+    1. Load normal_events and nonnormal_events from template files
+    2. Read metadata 'label' column in chunks
+    3. For each row:
+       - label in normal_events   -> 0 (NORMAL)
+       - label in nonnormal_events -> 1 (ANOMALY)
+       - else                      -> 2 (UNKNOWN, treated as ANOMALY in 2-class)
     """
     print(f"   Reading metadata TSV: {Path(metadata_tsv_path).name}")
-    print(f"   Label rule: '-' or empty -> NORMAL (0), anything else -> ANOMALY (1)")
+
+    # Load templates first
+    if normal_template_path is None or nonnormal_template_path is None:
+        print(f"   ⚠️ No template paths provided, falling back to dash matching")
+        normal_events = {'-'}
+        nonnormal_events = set()
+    else:
+        normal_events = load_template_events(Path(normal_template_path))
+        nonnormal_events = load_template_events(Path(nonnormal_template_path))
+
+    print(f"   Template events: NORMAL={len(normal_events):,}, NON-NORMAL={len(nonnormal_events):,}")
+    if normal_events:
+        sample_normal = sorted(list(normal_events))[:10]
+        print(f"      Sample NORMAL Labels: {sample_normal}")
+    else:
+        # Normal template hanya berisi '-' (di-discard oleh template loader)
+        # Tambahkan '-' sebagai fallback untuk matching
+        normal_events = {'-'}
+        print(f"      Normal template empty, using '-' as NORMAL marker")
+    if nonnormal_events:
+        sample_nn = sorted(list(nonnormal_events))[:10]
+        print(f"      Sample NON-NORMAL Labels: {sample_nn}")
 
     chunksize = 5_000_000
     codes_list = []
@@ -241,32 +312,36 @@ def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path=None
     total_rows = 0
     matched_normal = 0
     matched_anomaly = 0
+    matched_unknown = 0
 
     for chunk in pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'],
                               dtype=str, chunksize=chunksize):
-        chunk_codes = np.ones(len(chunk), dtype=np.uint8)  # default: ANOMALY
+        chunk_codes = np.full(len(chunk), 2, dtype=np.uint8)  # default: UNKNOWN
         vals = chunk['label'].values
         for i, val in enumerate(vals):
             if len(sample_labels) < 10:
                 sample_labels.append(repr(val)[:50])
-            # Check for '-' or empty
             if pd.isna(val):
-                chunk_codes[i] = 0
-                matched_normal += 1
+                chunk_codes[i] = 2
+                matched_unknown += 1
             else:
-                tok = str(val).strip()
-                if tok == '' or tok == '-':
+                tok = normalize_label_token(val)
+                if tok in normal_events:
                     chunk_codes[i] = 0
                     matched_normal += 1
-                else:
+                elif tok in nonnormal_events:
+                    chunk_codes[i] = 1
                     matched_anomaly += 1
+                else:
+                    matched_unknown += 1
             total_rows += 1
         codes_list.append(chunk_codes)
 
     print(f"   Sample label values (first 10): {sample_labels}")
     print(f"   Total rows processed: {total_rows:,}")
-    print(f"   NORMAL  ('-'):  {matched_normal:,} ({matched_normal/total_rows*100:.2f}%)")
-    print(f"   ANOMALY (else): {matched_anomaly:,} ({matched_anomaly/total_rows*100:.2f}%)")
+    print(f"   NORMAL (in normal_events):     {matched_normal:,} ({matched_normal/total_rows*100:.2f}%)")
+    print(f"   ANOMALY (in nonnormal_events): {matched_anomaly:,} ({matched_anomaly/total_rows*100:.2f}%)")
+    print(f"   UNKNOWN:                       {matched_unknown:,} ({matched_unknown/total_rows*100:.2f}%)")
 
     if not codes_list:
         return np.array([], dtype=np.uint8)
