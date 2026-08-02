@@ -539,29 +539,43 @@ def build_onehot_cluster_mapping(cluster_ids, min_freq=MIN_CLUSTER_ID_FREQ):
 
 
 def append_cluster_onehot(embeddings, cluster_ids, cluster_to_idx, n_clusters):
+    """Vectorized one-hot encoding of cluster IDs (no Python loop)."""
     n_samples = len(embeddings)
+    # Vectorize cluster_id -> one-hot index lookup
+    ids = np.array([cluster_to_idx.get(int(c), -1) for c in cluster_ids], dtype=np.int64)
+    valid = ids >= 0
     onehot = np.zeros((n_samples, n_clusters), dtype=np.float32)
-    for i, cid in enumerate(cluster_ids):
-        idx = cluster_to_idx.get(int(cid))
-        if idx is not None:
-            onehot[i, idx] = 1.0
+    # Assign 1.0 to valid positions in one shot (vectorized)
+    onehot[np.arange(n_samples)[valid], ids[valid]] = 1.0
     return np.concatenate([np.asarray(embeddings, dtype=np.float32), onehot], axis=1)
 
 
 def load_embeddings_chunked(embeddings_source, indices, chunk_size=50_000, desc="   Loading"):
-    """Load specific rows from a memmap into a contiguous array, in chunks."""
+    """Load specific rows from a memmap into a contiguous array, in chunks.
+
+    Optimization: sort indices first for sequential memmap access (much faster).
+    Output rows are restored to original order at the end.
+    """
+    indices = np.asarray(indices, dtype=np.int64)
     n = len(indices)
     out = None
     feat_dim = None
+    # Save original order to restore later
+    original_order = np.argsort(indices)
+    sorted_indices = indices[original_order]
+
     for start in tqdm(range(0, n, chunk_size), desc=desc):
         end = min(start + chunk_size, n)
-        idx_chunk = indices[start:end]
+        idx_chunk = sorted_indices[start:end]
         emb_chunk = np.asarray(embeddings_source[idx_chunk], dtype=np.float32)
         if out is None:
             feat_dim = emb_chunk.shape[1]
             out = np.empty((n, feat_dim), dtype=np.float32)
         out[start:end] = emb_chunk
-    return out
+
+    # Restore original order (invert the argsort)
+    inverse_order = np.argsort(original_order)
+    return out[inverse_order]
 
 
 def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_MAX_ITER):
