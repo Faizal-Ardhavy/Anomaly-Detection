@@ -222,33 +222,55 @@ def build_metadata_label_memmap(tsv_path, normal_events, nonnormal_events,
     return np.memmap(memmap_path, dtype=np.uint8, mode='r', shape=(n_rows,))
 
 
-def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path,
-                                    nonnormal_template_path):
-    """Return per-sample 2-class code array (0=Normal, 1=NonNormal, 2=Other)."""
-    normal_events = load_template_events(normal_template_path)
-    nonnormal_events = load_template_events(nonnormal_template_path)
-    print(f"   Template events: NORMAL={len(normal_events):,}, NON-NORMAL={len(nonnormal_events):,}")
-    if normal_events:
-        sample_normal = sorted(list(normal_events))[:5]
-        print(f"      Sample NORMAL EventIds: {sample_normal}")
-    if nonnormal_events:
-        sample_nn = sorted(list(nonnormal_events))[:5]
-        print(f"      Sample NON-NORMAL EventIds: {sample_nn}")
-    if DATASET.lower() == 'thunderbird':
-        return build_metadata_label_memmap(metadata_tsv_path, normal_events, nonnormal_events)
-    else:
-        try:
-            df = pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'], dtype=str)
-            codes = np.full(len(df), 2, dtype=np.uint8)
-            for i, val in enumerate(df['label'].values):
-                tok = normalize_label_token(val)
-                if tok in normal_events:
-                    codes[i] = 0
-                elif tok in nonnormal_events:
-                    codes[i] = 1
-            return codes
-        except Exception:
-            return _load_metadata_chunked(metadata_tsv_path, normal_events, nonnormal_events)
+def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path=None,
+                                    nonnormal_template_path=None):
+    """Read metadata TSV and assign per-sample 2-class label.
+
+    Rules:
+    - label column == '-' (or empty/NaN) -> 0 (NORMAL)
+    - label column == anything else      -> 1 (ANOMALY)
+
+    Templates are NOT used here (kept only for backward-compat signature).
+    """
+    print(f"   Reading metadata TSV: {Path(metadata_tsv_path).name}")
+    print(f"   Label rule: '-' or empty -> NORMAL (0), anything else -> ANOMALY (1)")
+
+    chunksize = 5_000_000
+    codes_list = []
+    sample_labels = []
+    total_rows = 0
+    matched_normal = 0
+    matched_anomaly = 0
+
+    for chunk in pd.read_csv(metadata_tsv_path, sep='\t', usecols=['label'],
+                              dtype=str, chunksize=chunksize):
+        chunk_codes = np.ones(len(chunk), dtype=np.uint8)  # default: ANOMALY
+        vals = chunk['label'].values
+        for i, val in enumerate(vals):
+            if len(sample_labels) < 10:
+                sample_labels.append(repr(val)[:50])
+            # Check for '-' or empty
+            if pd.isna(val):
+                chunk_codes[i] = 0
+                matched_normal += 1
+            else:
+                tok = str(val).strip()
+                if tok == '' or tok == '-':
+                    chunk_codes[i] = 0
+                    matched_normal += 1
+                else:
+                    matched_anomaly += 1
+            total_rows += 1
+        codes_list.append(chunk_codes)
+
+    print(f"   Sample label values (first 10): {sample_labels}")
+    print(f"   Total rows processed: {total_rows:,}")
+    print(f"   NORMAL  ('-'):  {matched_normal:,} ({matched_normal/total_rows*100:.2f}%)")
+    print(f"   ANOMALY (else): {matched_anomaly:,} ({matched_anomaly/total_rows*100:.2f}%)")
+
+    if not codes_list:
+        return np.array([], dtype=np.uint8)
+    return np.concatenate(codes_list)
 
 
 def _load_metadata_chunked(tsv_path, normal_events, nonnormal_events, chunksize=1_000_000):
