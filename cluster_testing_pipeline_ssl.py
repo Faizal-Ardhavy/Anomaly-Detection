@@ -669,37 +669,68 @@ def main():
     # Load embeddings: try multiple strategies since file may be pickled or raw
     print(f"   Loading training embeddings: {TRAINING_EMBEDDINGS_PATH}")
     training_embeddings = None
+    fsize = TRAINING_EMBEDDINGS_PATH.stat().st_size
+
     # Strategy 1: standard np.load (handles .npy header)
     try:
         training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, mmap_mode='r')
-    except ValueError as e1:
-        if 'pickled' in str(e1).lower():
-            # Strategy 2: file is pickled object - load into memory (no mmap)
-            print(f"   ⚠️ File is pickled, loading with allow_pickle=True (no mmap)...")
+        print(f"   ✓ Loaded with mmap (has .npy header)")
+    except Exception as e1:
+        print(f"   ⚠️ Standard load failed: {type(e1).__name__}: {str(e1)[:80]}")
+
+        # Strategy 2: file might be pickled object
+        try:
             training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, allow_pickle=True)
-        else:
-            # Strategy 3: try raw memmap by inferring shape
-            print(f"   ⚠️ Standard load failed ({e1}), trying raw memmap...")
-            fsize = TRAINING_EMBEDDINGS_PATH.stat().st_size
+            print(f"   ✓ Loaded with allow_pickle=True (in-memory)")
+        except Exception as e2:
+            print(f"   ⚠️ Pickle load failed: {type(e2).__name__}: {str(e2)[:80]}")
+
+            # Strategy 3: raw float32 memmap (most likely for big embedding files)
+            print(f"   🔍 Attempting raw float32 memmap...")
+            print(f"   File size: {fsize:,} bytes, target rows: {len(training_cluster_labels):,}")
+
             with open(TRAINING_EMBEDDINGS_PATH, 'rb') as fh:
-                header = fh.read(128)
-            if header[:6] == b'\x93NUMPY':
-                training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, allow_pickle=True)
-            else:
-                # Guess n,d from file size and training labels
-                target_n = len(training_cluster_labels)
-                for d in [128, 256, 768, 1024]:
-                    if fsize % (4 * d) == 0 and fsize // (4 * d) == target_n:
+                first_bytes = fh.read(6)
+
+            # Check for .npy header magic
+            has_npy_header = (first_bytes == b'\x93NUMPY')
+            target_n = len(training_cluster_labels)
+
+            if has_npy_header:
+                # Has header but failed earlier - try reading header manually
+                try:
+                    arr = np.load(TRAINING_EMBEDDINGS_PATH, allow_pickle=False)
+                    if isinstance(arr, np.ndarray) and arr.ndim == 2:
+                        training_embeddings = arr
+                        print(f"   ✓ Loaded raw array (shape={arr.shape})")
+                except Exception:
+                    pass
+
+            if training_embeddings is None:
+                # Infer shape from file size: total_bytes = n * d * 4 (float32)
+                target_bytes = target_n * 4
+                if fsize % target_bytes != 0:
+                    print(f"   ⚠️ File size {fsize:,} not divisible by rows×4. Trying generic dims...")
+                found = False
+                for d in [128, 256, 384, 512, 768, 1024, 1536, 2048]:
+                    if fsize == target_n * d * 4:
                         training_embeddings = np.memmap(
                             str(TRAINING_EMBEDDINGS_PATH),
                             dtype='float32', mode='r', shape=(target_n, d)
                         )
                         print(f"   ✓ Loaded as raw memmap with shape=({target_n},{d})")
+                        found = True
                         break
-                if training_embeddings is None:
+                if not found:
+                    # Last resort: assume the most likely dim and report mismatch
+                    guessed_d = fsize // (target_n * 4) if target_n else 256
                     raise RuntimeError(
-                        f"Cannot auto-detect embedding shape. File size={fsize}, "
-                        f"expected rows={target_n}. Tried dims [128, 256, 768, 1024]."
+                        f"Cannot auto-detect embedding shape.\n"
+                        f"  File size: {fsize:,} bytes\n"
+                        f"  Target rows: {target_n:,}\n"
+                        f"  Bytes per row if float32: {fsize // max(target_n, 1):,}\n"
+                        f"  Guessed dim: {guessed_d}\n"
+                        f"  Tried dims: [128, 256, 384, 512, 768, 1024, 1536, 2048]"
                     )
     print(f"   ✓ Shape: {training_embeddings.shape}")
     if len(training_embeddings) != len(training_cluster_labels):
