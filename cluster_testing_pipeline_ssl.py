@@ -159,14 +159,38 @@ def normalize_label_token(value) -> str:
 
 
 def load_template_events(template_path: Path) -> set:
+    """Extract EventId tokens from a template file (one per row, tab-separated).
+
+    Template file format (BGL/Thunderbird):
+      Normal:    LineId Label Timestamp Date Node ... EventId EventTemplate
+      NonNormal: Label  Timestamp Date User  ... EventId EventTemplate
+
+    Returns a set of normalized EventId tokens (e.g., {'E77', 'E3', ...}).
+    """
     events = set()
     if not template_path.exists():
         return events
     with open(template_path, 'r', encoding='utf-8', errors='ignore') as f:
+        header_line = f.readline()
+        if not header_line:
+            return events
+        header = header_line.strip().split('\t')
+        # Find EventId column index; fallback to second-to-last if header missing
+        if 'EventId' in header:
+            eventid_col = header.index('EventId')
+        elif 'EventTemplate' in header:
+            eventid_col = header.index('EventTemplate') - 1
+        else:
+            eventid_col = -2
         for line in f:
             line = line.strip()
-            if line and not line.startswith('#'):
-                events.add(normalize_label_token(line))
+            if not line or line.startswith('#'):
+                continue
+            cols = line.split('\t')
+            if len(cols) > abs(eventid_col):
+                token = cols[eventid_col].strip()
+                if token:
+                    events.add(normalize_label_token(token))
     return events
 
 
@@ -203,6 +227,13 @@ def load_metadata_codes_for_dataset(metadata_tsv_path, normal_template_path,
     """Return per-sample 2-class code array (0=Normal, 1=NonNormal, 2=Other)."""
     normal_events = load_template_events(normal_template_path)
     nonnormal_events = load_template_events(nonnormal_template_path)
+    print(f"   Template events: NORMAL={len(normal_events):,}, NON-NORMAL={len(nonnormal_events):,}")
+    if normal_events:
+        sample_normal = sorted(list(normal_events))[:5]
+        print(f"      Sample NORMAL EventIds: {sample_normal}")
+    if nonnormal_events:
+        sample_nn = sorted(list(nonnormal_events))[:5]
+        print(f"      Sample NON-NORMAL EventIds: {sample_nn}")
     if DATASET.lower() == 'thunderbird':
         return build_metadata_label_memmap(metadata_tsv_path, normal_events, nonnormal_events)
     else:
