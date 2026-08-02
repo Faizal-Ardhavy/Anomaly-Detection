@@ -665,8 +665,43 @@ def main():
     training_cluster_labels = np.load(TRAINING_LABELS_PATH)
     print(f"   Training cluster labels: {len(training_cluster_labels):,} samples, "
           f"{len(set(training_cluster_labels))} clusters")
-    training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, mmap_mode='r')
-    print(f"   Training embeddings: {training_embeddings.shape}")
+
+    # Load embeddings: try multiple strategies since file may be pickled or raw
+    print(f"   Loading training embeddings: {TRAINING_EMBEDDINGS_PATH}")
+    training_embeddings = None
+    # Strategy 1: standard np.load (handles .npy header)
+    try:
+        training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, mmap_mode='r')
+    except ValueError as e1:
+        if 'pickled' in str(e1).lower():
+            # Strategy 2: file is pickled object - load into memory (no mmap)
+            print(f"   ⚠️ File is pickled, loading with allow_pickle=True (no mmap)...")
+            training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, allow_pickle=True)
+        else:
+            # Strategy 3: try raw memmap by inferring shape
+            print(f"   ⚠️ Standard load failed ({e1}), trying raw memmap...")
+            fsize = TRAINING_EMBEDDINGS_PATH.stat().st_size
+            with open(TRAINING_EMBEDDINGS_PATH, 'rb') as fh:
+                header = fh.read(128)
+            if header[:6] == b'\x93NUMPY':
+                training_embeddings = np.load(TRAINING_EMBEDDINGS_PATH, allow_pickle=True)
+            else:
+                # Guess n,d from file size and training labels
+                target_n = len(training_cluster_labels)
+                for d in [128, 256, 768, 1024]:
+                    if fsize % (4 * d) == 0 and fsize // (4 * d) == target_n:
+                        training_embeddings = np.memmap(
+                            str(TRAINING_EMBEDDINGS_PATH),
+                            dtype='float32', mode='r', shape=(target_n, d)
+                        )
+                        print(f"   ✓ Loaded as raw memmap with shape=({target_n},{d})")
+                        break
+                if training_embeddings is None:
+                    raise RuntimeError(
+                        f"Cannot auto-detect embedding shape. File size={fsize}, "
+                        f"expected rows={target_n}. Tried dims [128, 256, 768, 1024]."
+                    )
+    print(f"   ✓ Shape: {training_embeddings.shape}")
     if len(training_embeddings) != len(training_cluster_labels):
         n = min(len(training_embeddings), len(training_cluster_labels))
         print(f"   ⚠️ Truncating to {n:,}")
