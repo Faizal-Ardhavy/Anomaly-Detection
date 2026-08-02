@@ -16,7 +16,7 @@ Primary Goal: The classification task is to predict if a client will subscribe t
 Data Snapshot: The dataset contains 41,188 records and 21 features for each customer.
 A Glimpse at the Features:
 The dataset includes a rich mix of information:
-
+tes
 Personal Details: age, job, marital status, education.
 Campaign Context: contact method, month of contact, duration of the last call.
 Economic Indicators: emp.var.rate (employment variation rate), cons.price.idx (consumer price index).
