@@ -1,57 +1,52 @@
 # =============================================================================
-# CORE PIP PACKAGES
+# CORE PIP PACKAGES (compatible with Python 3.10)
 # Install: pip install -r requirements.txt
 # =============================================================================
-certifi==2025.10.5
-charset-normalizer==3.4.3
-colorama==0.4.6
-contourpy==1.3.3
-cycler==0.12.1
-filelock==3.19.1
-fonttools==4.60.1
-fsspec==2025.9.0
-huggingface-hub==0.35.3
-idna==3.10
-Jinja2==3.1.6
-joblib==1.5.2
-kiwisolver==1.4.9
-MarkupSafe==3.0.3
-matplotlib==3.10.7
-mpmath==1.3.0
-networkx==3.5
-numpy==2.3.3
-packaging==25.0
-pandas==2.3.3
-pillow==11.0.0
-pyparsing==3.2.5
-python-dateutil==2.9.0.post0
-python-dotenv==1.1.1
-pytz==2025.2
-PyYAML==6.0.3
-regex==2025.9.18
-requests==2.32.5
-safetensors==0.6.2
-scikit-learn==1.7.2
-scipy==1.16.2
-seaborn==0.13.2
-six==1.17.0
-sympy==1.14.0
-threadpoolctl==3.6.0
-tokenizers==0.22.1
-tqdm==4.67.1
-transformers==4.57.0
-typing_extensions==4.15.0
-tzdata==2025.2
-urllib3==2.5.0
+certifi>=2024.0.0
+charset-normalizer>=3.3.0
+colorama>=0.4.6
+contourpy>=1.2.0,<1.3.3
+cycler>=0.12.0
+filelock>=3.13.0
+fonttools>=4.50.0
+fsspec>=2024.6.0
+huggingface-hub>=0.25.0
+idna>=3.7
+Jinja2>=3.1.4
+joblib>=1.4.2
+kiwisolver>=1.4.5
+MarkupSafe>=2.1.5
+matplotlib>=3.9.0,<3.10
+mpmath>=1.3.0
+networkx>=3.3
+numpy>=1.26.0,<2.5
+packaging>=24.0
+pandas>=2.2.0,<2.4
+pillow>=10.3.0,<12.0
+pyparsing>=3.1.0
+python-dateutil>=2.9.0
+python-dotenv>=1.0.0
+pytz>=2024.1
+PyYAML>=6.0.1
+regex>=2024.5.0
+requests>=2.32.0
+safetensors>=0.4.3
+scikit-learn>=1.5.0,<1.8
+scipy>=1.13.0,<1.14
+seaborn>=0.13.0
+six>=1.16.0
+sympy>=1.12.0
+threadpoolctl>=3.5.0
+tokenizers>=0.20.0
+tqdm>=4.66.0
+transformers>=4.45.0
+typing_extensions>=4.12.0
+tzdata>=2024.1
+urllib3>=2.2.0
 
 # =============================================================================
-# GPU PACKAGES (NVIDIA RTX 3060, CUDA 12.x)
-# Install PyTorch FIRST from NVIDIA index, then faiss-gpu
+# GPU PACKAGES (PyTorch CUDA already installed separately)
+# Install PyTorch FIRST: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+# Then: pip install -r requirements.txt
+# Then (optional): conda install -c conda-forge faiss-gpu=1.8.0
 # =============================================================================
-
-# Step 1 (run separately, BEFORE pip install -r requirements.txt):
-#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-
-# Step 2 (faiss - install separately, see instructions below):
-#   pip install faiss-cpu                # always works (slower)
-#   conda install -c conda-forge faiss-gpu=1.8.0   # GPU version (recommended)
