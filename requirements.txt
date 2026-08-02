@@ -1,5 +1,6 @@
 # =============================================================================
-# CORE PIP PACKAGES (install with: pip install -r requirements.txt)
+# CORE PIP PACKAGES
+# Install: pip install -r requirements.txt
 # =============================================================================
 certifi==2025.10.5
 charset-normalizer==3.4.3
@@ -37,9 +38,6 @@ six==1.17.0
 sympy==1.14.0
 threadpoolctl==3.6.0
 tokenizers==0.22.1
-torch==2.7.1
-torchvision==0.22.1
-torchaudio==2.7.1
 tqdm==4.67.1
 transformers==4.57.0
 typing_extensions==4.15.0
@@ -47,29 +45,14 @@ tzdata==2025.2
 urllib3==2.5.0
 
 # =============================================================================
-# GPU PACKAGES (NVIDIA RTX 3060 / CUDA 12.x)
-# Install with pip from NVIDIA index, OR use environment.yml (recommended)
+# GPU PACKAGES (NVIDIA RTX 3060, CUDA 12.x)
+# Install PyTorch FIRST from NVIDIA index, then faiss-gpu
 # =============================================================================
-# For pip install (run inside conda env or venv):
-#   pip install cuml-cu12 cudf-cu12 faiss-gpu
-#
-# faiss-gpu (cluster assignment - 10-50x faster than CPU)
-faiss-gpu==1.7.2.post3
-# cuml-cu12 (GPU scikit-learn: LogisticRegression, NearestNeighbors)
-# Comment out the line below if you don't want to install via pip
-cuml-cu12==25.6.0
-# cudf-cu12 (GPU pandas - optional, faster data loading)
-cudf-cu12==25.6.0
 
-# =============================================================================
-# CUDA DEPENDENCIES (auto-installed with cuML, but if pip fails)
-# =============================================================================
-# cuda-python==12.6.0
-# nvidia-cuda-runtime-cu12==12.6.85
-# nvidia-cublas-cu12==12.6.4.1
-# nvidia-cufft-cu12==11.3.0.4
-# nvidia-curand-cu12==10.3.7.77
-# nvidia-cusparse-cu12==12.5.4.2
-# nvidia-cusolver-cu12==11.7.1.2
-# nvidia-nccl-cu12==2.26.2
-# nvidia-nvjitlink-cu12==12.6.85
+# Step 1 (run separately, before pip install -r requirements.txt):
+#   pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 \
+#       --index-url https://download.pytorch.org/whl/cu126
+
+# Step 2 (in this file):
+# GPU FAISS for cluster assignment (10-50x faster than CPU)
+faiss-gpu==1.7.2.post3
