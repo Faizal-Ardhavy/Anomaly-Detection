@@ -63,7 +63,7 @@ warnings.filterwarnings('ignore')
 # Dataset & Algorithm Selection
 DATASET = "Thunderbird"  # "BGL" or "Thunderbird"
 ALGORITHM = "dbscan"     # "kmeans" or "dbscan"
-EMBEDDING_TYPE = "pca256"  # "base", "pca256", or "pca128"
+EMBEDDING_TYPE = "base"  # "base", "pca256", or "pca128"
 
 # Template paths for per-sample metadata labeling
 if DATASET == "BGL":
@@ -81,20 +81,20 @@ if ALGORITHM == "kmeans":
     TRAINING_LABELS_PATH = Path("kmeans/thunderbird_k_params/cluster_labels.npy")
     TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
 else:  # dbscan
-    TRAINING_LABELS_PATH = Path("dbscan/thunderbird_pca256_model/dbscan_labels.npy")
-    TRAINING_CONFIG_PATH = Path("dbscan/thunderbird_pca256_model/dbscan_config.npy")
-    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256/after_preprocessed_thunderbird_pca256_embeddings.npy")
+    TRAINING_LABELS_PATH = Path("dbscan/thunderbird_base_model/dbscan_labels.npy")
+    TRAINING_CONFIG_PATH = Path("dbscan/thunderbird_base_model/dbscan_config.npy")
+    TRAINING_EMBEDDINGS_PATH = Path("/media/bioinfo04/Expansion/2427051003_dataset_vector/after_preprocessed_thunderbird_embeddings.npy")
 
 # Path to testing data
 TESTING_SETS = [
     {
         'name': 'normal',
-        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256_testing/after_preprocessed_thunderbird_normal_pca256_embeddings.npy"),
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_thunderbird_normal_embeddings.npy"),
         'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_thunderbird_normal_meta.tsv")
     },
     {
         'name': 'anomaly',
-        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_pca256_testing/after_preprocessed_thunderbird_non_normal_pca256_embeddings.npy"),
+        'embeddings': Path("/media/bioinfo04/Expansion/2427051003_dataset_vector_testing/after_preprocessed_thunderbird_non_normal_embeddings.npy"),
         'metadata': Path("/media/bioinfo04/Expansion/after_preprocessed_meta_data/after_preprocessed_thunderbird_non_normal_meta.tsv")
     }
 ]
