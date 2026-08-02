@@ -933,12 +933,7 @@ def main():
             del X_train_emb; gc.collect()
         else:
             X_train = X_train_emb
-        y_train_combined = np.array(
-            [train_labels_combined[np.where(train_indices == i)[0][0]] if i in train_indices else -1
-             for i in all_idx],
-            dtype=np.int32
-        )
-        # Map properly using a dict for speed
+        # Map train_indices -> labels using a dict for O(1) lookup
         idx_to_label = {idx: lbl for idx, lbl in zip(train_indices, train_labels_combined)}
         y_train_combined = np.array([idx_to_label[int(i)] for i in all_idx], dtype=np.int32)
 
