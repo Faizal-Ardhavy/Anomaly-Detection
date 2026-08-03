@@ -113,10 +113,47 @@ LABEL_NORMAL_CODE = 0
 LABEL_ANOMALY_CODE = 1
 METADATA_NORMAL_TOKEN = '-'  # In templates, normal is denoted by a single dash
 
+# ============================================================================
+# GPU / ACCELERATION AUTO-DETECTION
+# ============================================================================
+USE_GPU = True  # Auto-detect GPU packages (cuml, faiss-gpu)
+
+CUML_AVAILABLE = False
+FAISS_GPU_AVAILABLE = False
+try:
+    import cuml
+    from cuml.linear_model import LogisticRegression as cuLR
+    CUML_AVAILABLE = True
+    print(f"✓ cuML available: {cuml.__version__} (GPU LogReg enabled)")
+except ImportError:
+    print("⚠ cuML not available, falling back to sklearn CPU")
+try:
+    import faiss
+    if faiss.get_num_gpus() > 0:
+        FAISS_GPU_AVAILABLE = True
+        print(f"✓ FAISS-GPU available: {faiss.get_num_gpus()} GPU(s)")
+    else:
+        print("⚠ FAISS-CPU only (no GPU detected)")
+except ImportError:
+    print("⚠ FAISS not available")
+
 # Pseudo-labeling parameters (matches tutorial)
 PSEUDO_CONFIDENCE_THRESHOLD = 0.90
 MAX_ITERATIONS = 3
 MIN_PSEUDO_PER_ITERATION = 100
+
+# Checkpoint paths (for resume capability)
+CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
+CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+CKPT_TRAIN_LABELS = CHECKPOINT_DIR / "training_cluster_labels.npy"
+CKPT_TRAIN_EMB_PATH = CHECKPOINT_DIR / "training_embeddings_path.txt"
+CKPT_SAMPLE_LABELS = CHECKPOINT_DIR / "sample_labels.npy"
+CKPT_LABELED_IDX = CHECKPOINT_DIR / "labeled_idx.npy"
+CKPT_UNLABELED_IDX = CHECKPOINT_DIR / "unlabeled_idx.npy"
+CKPT_TEST_CLUSTER_LABELS = CHECKPOINT_DIR / "test_cluster_labels.npy"
+CKPT_TEST_EMB_PATH = CHECKPOINT_DIR / "test_embeddings_path.txt"
+CKPT_TEST_GT = CHECKPOINT_DIR / "test_gt_labels.npy"
+CKPT_TEST_SET_INFO = CHECKPOINT_DIR / "test_set_info.pkl"
 CONVERGENCE_TOL = 0.001
 
 # Classifier
@@ -705,20 +742,64 @@ def load_embeddings_chunked(embeddings_source, indices, chunk_size=50_000, desc=
 
 
 def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_MAX_ITER):
-    print(f"   Training LogReg (binary, C={C}, max_iter={max_iter}, samples={len(X_train):,})...")
-    clf = LogisticRegression(
-        C=C, max_iter=max_iter, n_jobs=-1,
-        class_weight='balanced', solver='lbfgs'
-    )
-    clf.fit(X_train, y_train)
-    train_acc = clf.score(X_train, y_train)
-    print(f"   ✓ Train accuracy: {train_acc:.4f}")
-    return clf
+    """Train classifier (GPU cuML if available, else sklearn CPU)."""
+    n_samples, n_features = X_train.shape
+    use_gpu = USE_GPU and CUML_AVAILABLE
+
+    if use_gpu:
+        try:
+            import cupy as cp
+            X_gpu = cp.asarray(X_train, dtype=cp.float32)
+            y_gpu = cp.asarray(y_train, dtype=cp.int32)
+            print(f"   Training cuML LogReg on GPU (C={C}, samples={n_samples:,}, features={n_features:,})...")
+            clf = cuLR(
+                C=C, max_iter=max_iter,
+                class_weight='balanced', solver='lbfgs',
+                output_type='numpy'
+            )
+            clf.fit(X_gpu, y_gpu)
+            train_acc = clf.score(X_gpu, y_gpu)
+            print(f"   ✓ Train accuracy (GPU): {train_acc:.4f}")
+            # Wrap in a simple class for predict_proba compat
+            class GPUWrapper:
+                def __init__(self, model):
+                    self.model = model
+                def predict(self, X):
+                    X_gpu = cp.asarray(X, dtype=cp.float32)
+                    return cp.asnumpy(self.model.predict(X_gpu))
+                def predict_proba(self, X):
+                    X_gpu = cp.asarray(X, dtype=cp.float32)
+                    proba = self.model.predict_proba(X_gpu)
+                    return cp.asnumpy(proba)
+            return GPUWrapper(clf)
+        except Exception as e:
+            print(f"   ⚠ cuML failed ({type(e).__name__}: {str(e)[:80]}), falling back to sklearn")
+            use_gpu = False
+
+    if not use_gpu:
+        print(f"   Training sklearn LogReg on CPU (C={C}, max_iter={max_iter}, samples={n_samples:,})...")
+        clf = LogisticRegression(
+            C=C, max_iter=max_iter, n_jobs=-1,
+            class_weight='balanced', solver='lbfgs'
+        )
+        clf.fit(X_train, y_train)
+        train_acc = clf.score(X_train, y_train)
+        print(f"   ✓ Train accuracy (CPU): {train_acc:.4f}")
+        return clf
 
 
 def pseudo_label_unlabeled(clf, X_unlabeled, threshold=PSEUDO_CONFIDENCE_THRESHOLD):
     """Predict on unlabeled set, return (pseudo_mask, pseudo_labels)."""
-    proba = clf.predict_proba(X_unlabeled)
+    if USE_GPU and CUML_AVAILABLE and hasattr(clf, 'model'):
+        # GPU pipeline: skip numpy-conversion overhead
+        try:
+            import cupy as cp
+            X_gpu = cp.asarray(X_unlabeled, dtype=cp.float32)
+            proba = cp.asnumpy(clf.model.predict_proba(X_gpu))
+        except Exception:
+            proba = clf.predict_proba(X_unlabeled)
+    else:
+        proba = clf.predict_proba(X_unlabeled)
     max_probs = proba.max(axis=1)
     predictions = proba.argmax(axis=1)
     pseudo_mask = max_probs >= threshold
