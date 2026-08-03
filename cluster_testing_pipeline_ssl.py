@@ -141,19 +141,6 @@ except ImportError:
 PSEUDO_CONFIDENCE_THRESHOLD = 0.90
 MAX_ITERATIONS = 3
 MIN_PSEUDO_PER_ITERATION = 100
-
-# Checkpoint paths (for resume capability)
-CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
-CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-CKPT_TRAIN_LABELS = CHECKPOINT_DIR / "training_cluster_labels.npy"
-CKPT_TRAIN_EMB_PATH = CHECKPOINT_DIR / "training_embeddings_path.txt"
-CKPT_SAMPLE_LABELS = CHECKPOINT_DIR / "sample_labels.npy"
-CKPT_LABELED_IDX = CHECKPOINT_DIR / "labeled_idx.npy"
-CKPT_UNLABELED_IDX = CHECKPOINT_DIR / "unlabeled_idx.npy"
-CKPT_TEST_CLUSTER_LABELS = CHECKPOINT_DIR / "test_cluster_labels.npy"
-CKPT_TEST_EMB_PATH = CHECKPOINT_DIR / "test_embeddings_path.txt"
-CKPT_TEST_GT = CHECKPOINT_DIR / "test_gt_labels.npy"
-CKPT_TEST_SET_INFO = CHECKPOINT_DIR / "test_set_info.pkl"
 CONVERGENCE_TOL = 0.001
 
 # Classifier
