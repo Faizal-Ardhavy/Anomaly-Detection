@@ -124,18 +124,28 @@ try:
     import cuml
     from cuml.linear_model import LogisticRegression as cuLR
     CUML_AVAILABLE = True
-    print(f"✓ cuML available: {cuml.__version__} (GPU LogReg enabled)")
-except ImportError:
-    print("⚠ cuML not available, falling back to sklearn CPU")
+    cu_version = getattr(cuml, '__version__', 'unknown')
+    print(f"✓ cuML available: {cu_version} (GPU LogReg enabled)")
+except Exception as e:
+    print(f"⚠ cuML not available: {type(e).__name__}: {str(e)[:200]}")
+    print("   (CuML often fails due to missing CUDA libs, not just missing package)")
 try:
     import faiss
     if faiss.get_num_gpus() > 0:
         FAISS_GPU_AVAILABLE = True
         print(f"✓ FAISS-GPU available: {faiss.get_num_gpus()} GPU(s)")
     else:
-        print("⚠ FAISS-CPU only (no GPU detected)")
-except ImportError:
-    print("⚠ FAISS not available")
+        print(f"⚠ FAISS-CPU only (installed but no GPU detected)")
+except Exception as e:
+    print(f"⚠ FAISS not available: {type(e).__name__}: {str(e)[:200]}")
+try:
+    import torch
+    if torch.cuda.is_available():
+        print(f"✓ PyTorch CUDA available: {torch.cuda.get_device_name(0)}")
+    else:
+        print("⚠ PyTorch CUDA not available (CPU only)")
+except Exception as e:
+    print(f"⚠ PyTorch: {type(e).__name__}: {str(e)[:100]}")
 
 # Pseudo-labeling parameters (matches tutorial)
 PSEUDO_CONFIDENCE_THRESHOLD = 0.90
