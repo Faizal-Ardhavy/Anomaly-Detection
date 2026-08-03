@@ -386,26 +386,62 @@ def find_kmeans_training_embeddings_for_dim(original_path, dataset, embedding_ty
 
 def fast_cluster_assignment_sklearn_batched(training_embeddings, training_cluster_labels,
                                             test_embeddings, use_cosine=True, batch_size=10000):
-    print("   Using sklearn batched k-NN for cluster assignment...")
-    train_emb = np.asarray(training_embeddings, dtype=np.float32)
-    if use_cosine:
-        train_emb = normalize(train_emb, norm='l2', copy=False)
-    valid_mask = training_cluster_labels != -1
-    train_emb_valid = train_emb[valid_mask]
-    train_labels_valid = training_cluster_labels[valid_mask]
-    knn = NearestNeighbors(n_neighbors=1, metric='cosine' if use_cosine else 'euclidean', n_jobs=-1)
-    knn.fit(train_emb_valid)
+    """Exact 1-NN fallback without copying the full training embedding array.
+
+    Training data is indexed in chunks and test queries are processed in batches.
+    This preserves the original nearest-neighbor cluster assignment logic while
+    preventing a full 595+ GiB float32 allocation for very large memmaps.
+    """
+    print("   Using memory-safe sklearn chunked exact k-NN for cluster assignment...")
+    training_cluster_labels = np.asarray(training_cluster_labels)
+    valid_indices = np.flatnonzero(training_cluster_labels != -1)
+    if len(valid_indices) == 0:
+        raise ValueError("No non-noise training samples available for k-NN assignment")
+
     n_test = len(test_embeddings)
     labels = np.empty(n_test, dtype=np.int32)
     distances = np.empty(n_test, dtype=np.float32)
-    for start in tqdm(range(0, n_test, batch_size), desc="   k-NN batched"):
+    train_chunk_size = 200_000
+
+    for start in tqdm(range(0, n_test, batch_size), desc="   k-NN test batches"):
         end = min(start + batch_size, n_test)
-        batch = np.asarray(test_embeddings[start:end], dtype=np.float32)
+        query = np.array(test_embeddings[start:end], dtype=np.float32, copy=True)
         if use_cosine:
-            batch = normalize(batch, norm='l2', copy=False)
-        dist, idx = knn.kneighbors(batch)
-        labels[start:end] = train_labels_valid[idx[:, 0]]
-        distances[start:end] = dist[:, 0]
+            query = normalize(query, norm='l2', copy=False)
+
+        best_dist = np.full(end - start, np.inf, dtype=np.float32)
+        best_label = np.empty(end - start, dtype=np.int32)
+
+        for train_start in range(0, len(valid_indices), train_chunk_size):
+            train_end = min(train_start + train_chunk_size, len(valid_indices))
+            chunk_indices = valid_indices[train_start:train_end]
+            train_chunk = np.array(
+                training_embeddings[chunk_indices], dtype=np.float32, copy=True
+            )
+            if use_cosine:
+                train_chunk = normalize(train_chunk, norm='l2', copy=False)
+
+            knn = NearestNeighbors(
+                n_neighbors=1,
+                metric='cosine' if use_cosine else 'euclidean',
+                n_jobs=-1,
+            )
+            knn.fit(train_chunk)
+            chunk_dist, chunk_nn = knn.kneighbors(query)
+            chunk_dist = chunk_dist[:, 0].astype(np.float32, copy=False)
+            improved = chunk_dist < best_dist
+            if np.any(improved):
+                nearest_rows = chunk_nn[improved, 0]
+                best_dist[improved] = chunk_dist[improved]
+                best_label[improved] = training_cluster_labels[
+                    chunk_indices[nearest_rows]
+                ].astype(np.int32, copy=False)
+
+            del train_chunk, knn, chunk_dist, chunk_nn
+
+        labels[start:end] = best_label
+        distances[start:end] = best_dist
+
     return {'labels': labels, 'distances': distances, 'rejection_threshold': None}
 
 
