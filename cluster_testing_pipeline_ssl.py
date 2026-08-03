@@ -156,6 +156,49 @@ OUTPUT_CONFUSION_MATRIX = OUTPUT_DIR / "confusion_matrix.png"
 OUTPUT_ITERATION_PLOT = OUTPUT_DIR / "iteration_progression.png"
 OUTPUT_DETAILED_RESULTS = OUTPUT_DIR / "detailed_results.csv"
 
+# Resumable stage checkpoints. Delete CHECKPOINT_DIR to force a clean run.
+CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
+CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+CHECKPOINT_SIGNATURE = {
+    'dataset': DATASET,
+    'algorithm': ALGORITHM,
+    'embedding_type': EMBEDDING_TYPE,
+    'labeled_fraction': LABELED_FRACTION,
+    'confidence_threshold': PSEUDO_CONFIDENCE_THRESHOLD,
+    'use_cluster_feature': USE_CLUSTER_ID_AS_FEATURE,
+}
+
+
+def checkpoint_path(name):
+    return CHECKPOINT_DIR / f"{name}.pkl"
+
+
+def save_checkpoint(name, **state):
+    """Atomically persist a stage state so interrupted runs can resume."""
+    path = checkpoint_path(name)
+    tmp_path = path.with_suffix('.tmp')
+    payload = {'signature': CHECKPOINT_SIGNATURE, 'state': state}
+    joblib.dump(payload, tmp_path, compress=0)
+    tmp_path.replace(path)
+    print(f"   💾 Checkpoint saved: {path}")
+
+
+def load_checkpoint(name):
+    """Load a compatible checkpoint, otherwise return None."""
+    path = checkpoint_path(name)
+    if not path.exists():
+        return None
+    try:
+        payload = joblib.load(path)
+        if payload.get('signature') != CHECKPOINT_SIGNATURE:
+            print(f"   ⚠️ Ignoring incompatible checkpoint: {path.name}")
+            return None
+        print(f"   ↩ Resuming from checkpoint: {path}")
+        return payload['state']
+    except Exception as exc:
+        print(f"   ⚠️ Could not load checkpoint {path.name}: {exc}")
+        return None
+
 
 # ============================================================================
 # HELPER FUNCTIONS (reused)
@@ -873,12 +916,23 @@ def main():
     print("\n" + "="*70)
     print("STEP 2: ASSIGN PER-SAMPLE LABELS (no majority vote)")
     print("="*70)
-    metadata_codes = load_metadata_codes_for_dataset(
-        METADATA_TSV_PATH, NORMAL_TEMPLATE_PATH, NONNORMAL_TEMPLATE_PATH
-    )
-    print(f"   Metadata codes: {len(metadata_codes):,}")
-    sample_labels = assign_per_sample_labels(training_cluster_labels, metadata_codes)
-    np.save(OUTPUT_TRAIN_LABELS, sample_labels)
+    stage2 = load_checkpoint('stage2_sample_labels')
+    if stage2 is not None and len(stage2['sample_labels']) == len(training_cluster_labels):
+        sample_labels = stage2['sample_labels']
+        print(f"   ✓ Restored {len(sample_labels):,} training sample labels")
+    else:
+        metadata_codes = load_metadata_codes_for_dataset(
+            METADATA_TSV_PATH, NORMAL_TEMPLATE_PATH, NONNORMAL_TEMPLATE_PATH
+        )
+        print(f"   Metadata codes: {len(metadata_codes):,}")
+        if len(metadata_codes) < len(training_cluster_labels):
+            raise ValueError(
+                f"Metadata rows ({len(metadata_codes):,}) are fewer than training "
+                f"samples ({len(training_cluster_labels):,})"
+            )
+        sample_labels = assign_per_sample_labels(training_cluster_labels, metadata_codes)
+        np.save(OUTPUT_TRAIN_LABELS, sample_labels)
+        save_checkpoint('stage2_sample_labels', sample_labels=sample_labels)
 
     # ------------------------------------------------------------------
     # STEP 3: Split labeled / unlabeled
@@ -886,7 +940,18 @@ def main():
     print("\n" + "="*70)
     print("STEP 3: SPLIT LABELED / UNLABELED")
     print("="*70)
-    labeled_idx, unlabeled_idx = split_labeled_unlabeled(sample_labels, LABELED_FRACTION)
+    stage3 = load_checkpoint('stage3_split')
+    if stage3 is not None:
+        labeled_idx = stage3['labeled_idx']
+        unlabeled_idx = stage3['unlabeled_idx']
+        print(f"   ✓ Restored labeled={len(labeled_idx):,}, unlabeled={len(unlabeled_idx):,}")
+    else:
+        labeled_idx, unlabeled_idx = split_labeled_unlabeled(
+            sample_labels, LABELED_FRACTION
+        )
+        save_checkpoint(
+            'stage3_split', labeled_idx=labeled_idx, unlabeled_idx=unlabeled_idx
+        )
 
     # ------------------------------------------------------------------
     # STEP 4: Build feature matrix + train initial classifier
@@ -896,8 +961,21 @@ def main():
     print("="*70)
 
     if USE_CLUSTER_ID_AS_FEATURE:
-        cluster_to_idx, n_clusters_feat = build_onehot_cluster_mapping(training_cluster_labels)
-        print(f"   Cluster one-hot features: {n_clusters_feat}")
+        stage4_mapping = load_checkpoint('stage4_cluster_mapping')
+        if stage4_mapping is not None:
+            cluster_to_idx = stage4_mapping['cluster_to_idx']
+            n_clusters_feat = stage4_mapping['n_clusters_feat']
+            print(f"   ✓ Restored cluster one-hot features: {n_clusters_feat}")
+        else:
+            cluster_to_idx, n_clusters_feat = build_onehot_cluster_mapping(
+                training_cluster_labels
+            )
+            print(f"   Cluster one-hot features: {n_clusters_feat}")
+            save_checkpoint(
+                'stage4_cluster_mapping',
+                cluster_to_idx=cluster_to_idx,
+                n_clusters_feat=n_clusters_feat,
+            )
     else:
         cluster_to_idx, n_clusters_feat = {}, 0
 
@@ -931,7 +1009,11 @@ def main():
     print("\n" + "="*70)
     print("STEP 5: ASSIGN TEST SAMPLES TO TRAINING CLUSTERS")
     print("="*70)
-    if ALGORITHM == "kmeans":
+    stage5 = load_checkpoint('stage5_test_clusters')
+    if stage5 is not None and len(stage5['test_cluster_labels']) == len(test_embeddings):
+        test_cluster_labels = stage5['test_cluster_labels']
+        print(f"   ✓ Restored {len(test_cluster_labels):,} test cluster assignments")
+    elif ALGORITHM == "kmeans":
         model = None
         try:
             model = load_kmeans_model_compat(TRAINED_MODEL_PATH)
@@ -976,6 +1058,10 @@ def main():
                 test_cluster_labels = faiss_result['labels']
     print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples")
     np.save(OUTPUT_CLUSTER_LABELS, test_cluster_labels)
+    if stage5 is None:
+        save_checkpoint(
+            'stage5_test_clusters', test_cluster_labels=test_cluster_labels
+        )
 
     # ------------------------------------------------------------------
     # STEP 6: Iterative pseudo-labeling
@@ -991,8 +1077,22 @@ def main():
     history = []
     final_clf = None
     prev_test_predictions = None
+    start_iteration = 1
 
-    for it in range(1, MAX_ITERATIONS + 1):
+    # Resume from the newest completed SSL iteration.
+    for saved_it in range(MAX_ITERATIONS, 0, -1):
+        iteration_state = load_checkpoint(f'stage6_iteration_{saved_it}')
+        if iteration_state is not None:
+            train_indices = iteration_state['train_indices'].tolist()
+            train_labels_combined = iteration_state['train_labels_combined'].tolist()
+            history = iteration_state['history']
+            final_clf = iteration_state['final_clf']
+            prev_test_predictions = iteration_state['prev_test_predictions']
+            start_iteration = saved_it + 1
+            print(f"   ✓ Resuming SSL after iteration {saved_it}")
+            break
+
+    for it in range(start_iteration, MAX_ITERATIONS + 1):
         print(f"\n--- Iteration {it}/{MAX_ITERATIONS} ---")
         print(f"   Training pool: {len(train_indices):,} samples "
               f"(labeled={len(labeled_idx_use):,} + pseudo={len(train_indices)-len(labeled_idx_use):,})")
@@ -1079,14 +1179,25 @@ def main():
             'accuracy': test_acc
         })
 
-        # Convergence
+        prediction_change = None
         if prev_test_predictions is not None:
-            change = float(np.mean(test_preds != prev_test_predictions))
-            print(f"   Test prediction change: {change:.4f}")
-            if change < CONVERGENCE_TOL:
-                print(f"   ✓ Converged")
-                break
+            prediction_change = float(np.mean(test_preds != prev_test_predictions))
+            print(f"   Test prediction change: {prediction_change:.4f}")
         prev_test_predictions = test_preds
+
+        save_checkpoint(
+            f'stage6_iteration_{it}',
+            train_indices=np.asarray(train_indices, dtype=np.int64),
+            train_labels_combined=np.asarray(train_labels_combined, dtype=np.int32),
+            history=history,
+            final_clf=final_clf,
+            prev_test_predictions=prev_test_predictions,
+        )
+
+        # Convergence
+        if prediction_change is not None and prediction_change < CONVERGENCE_TOL:
+            print(f"   ✓ Converged")
+            break
 
         if n_pseudo < MIN_PSEUDO_PER_ITERATION and it > 1:
             print(f"   ✓ Stopped: too few new pseudo-labels")
@@ -1139,6 +1250,12 @@ def main():
 
     metrics = calculate_metrics(test_gt_labels, final_predictions)
     visualize_results(metrics, history, test_gt_labels)
+    save_checkpoint(
+        'stage8_complete',
+        final_predictions=final_predictions,
+        final_confidence=final_confidence,
+        history=history,
+    )
 
     print("\n" + "="*70)
     print("✅ C1 PSEUDO-LABELING COMPLETE")
