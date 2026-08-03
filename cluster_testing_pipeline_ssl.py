@@ -133,9 +133,18 @@ MIN_CLUSTER_ID_FREQ = 5
 # Distance
 USE_COSINE_DISTANCE = True
 
+# DBSCAN test assignment: nearest training-cluster centroid.
+# This changes only the auxiliary cluster-ID feature, not the SSL labels.
+DBSCAN_USE_CENTROID_ASSIGNMENT = True
+DBSCAN_CENTROID_CHUNK_SIZE = 300_000
+DBSCAN_TEST_BATCH_SIZE = 20_000
+
 # Output paths
 OUTPUT_DIR = Path("testing_results_ssl") / f"{DATASET.lower()}_{ALGORITHM}_{EMBEDDING_TYPE}_c1"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+DBSCAN_CENTROID_IDS_CACHE = OUTPUT_DIR / "dbscan_centroid_cluster_ids.npy"
+DBSCAN_CENTROIDS_CACHE = OUTPUT_DIR / "dbscan_centroids.npy"
 
 OUTPUT_PREDICTIONS = OUTPUT_DIR / "predictions.npy"
 OUTPUT_CONFIDENCE = OUTPUT_DIR / "confidence.npy"
@@ -382,6 +391,44 @@ def find_kmeans_training_embeddings_for_dim(original_path, dataset, embedding_ty
         except Exception:
             continue
     return None
+
+
+def build_or_load_dbscan_centroids(training_embeddings, training_cluster_labels):
+    """Build compact DBSCAN cluster centroids in chunks and cache them."""
+    if DBSCAN_CENTROID_IDS_CACHE.exists() and DBSCAN_CENTROIDS_CACHE.exists():
+        cluster_ids = np.load(DBSCAN_CENTROID_IDS_CACHE)
+        centroids = np.load(DBSCAN_CENTROIDS_CACHE, mmap_mode='r')
+        if centroids.ndim == 2 and centroids.shape[0] == len(cluster_ids):
+            print(f"   ✓ Loaded {len(cluster_ids):,} cached DBSCAN centroids")
+            return cluster_ids, centroids
+        print("   ⚠️ Invalid centroid cache; rebuilding...")
+
+    cluster_ids, centroids = build_kmeans_centroids_from_labels(
+        training_embeddings,
+        training_cluster_labels,
+        chunk_size=DBSCAN_CENTROID_CHUNK_SIZE,
+    )
+    np.save(DBSCAN_CENTROID_IDS_CACHE, cluster_ids)
+    np.save(DBSCAN_CENTROIDS_CACHE, centroids)
+    print(f"   ✓ Built and cached {len(cluster_ids):,} DBSCAN centroids")
+    return cluster_ids, centroids
+
+
+def assign_dbscan_test_by_centroid(training_embeddings, training_cluster_labels,
+                                   test_embeddings, use_cosine=True):
+    """Assign test samples to the nearest non-noise DBSCAN cluster centroid."""
+    cluster_ids, centroids = build_or_load_dbscan_centroids(
+        training_embeddings, training_cluster_labels
+    )
+    if len(cluster_ids) == 0:
+        raise ValueError("DBSCAN training labels contain no non-noise clusters")
+    return predict_kmeans_from_centroids(
+        test_embeddings,
+        cluster_ids,
+        centroids,
+        use_cosine=use_cosine,
+        batch_size=DBSCAN_TEST_BATCH_SIZE,
+    )
 
 
 def fast_cluster_assignment_sklearn_batched(training_embeddings, training_cluster_labels,
@@ -906,18 +953,27 @@ def main():
                 use_cosine=USE_COSINE_DISTANCE, batch_size=20000
             )
     else:
-        faiss_result = fast_cluster_assignment_faiss(
-            training_embeddings, training_cluster_labels,
-            test_embeddings, use_cosine=USE_COSINE_DISTANCE
-        )
-        if faiss_result is None:
-            sklearn_result = fast_cluster_assignment_sklearn_batched(
+        if DBSCAN_USE_CENTROID_ASSIGNMENT:
+            print("   Using nearest DBSCAN training-cluster centroid...")
+            test_cluster_labels = assign_dbscan_test_by_centroid(
+                training_embeddings,
+                training_cluster_labels,
+                test_embeddings,
+                use_cosine=USE_COSINE_DISTANCE,
+            )
+        else:
+            faiss_result = fast_cluster_assignment_faiss(
                 training_embeddings, training_cluster_labels,
                 test_embeddings, use_cosine=USE_COSINE_DISTANCE
             )
-            test_cluster_labels = sklearn_result['labels']
-        else:
-            test_cluster_labels = faiss_result['labels']
+            if faiss_result is None:
+                sklearn_result = fast_cluster_assignment_sklearn_batched(
+                    training_embeddings, training_cluster_labels,
+                    test_embeddings, use_cosine=USE_COSINE_DISTANCE
+                )
+                test_cluster_labels = sklearn_result['labels']
+            else:
+                test_cluster_labels = faiss_result['labels']
     print(f"   ✓ Assigned {len(test_cluster_labels):,} test samples")
     np.save(OUTPUT_CLUSTER_LABELS, test_cluster_labels)
 
