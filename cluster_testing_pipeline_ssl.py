@@ -1054,20 +1054,32 @@ def main():
         labeled_idx_use = rng.choice(labeled_idx, LABELED_SUBSAMPLE_CAP, replace=False)
         print(f"   Subsampled labeled: {len(labeled_idx):,} -> {len(labeled_idx_use):,}")
 
-    print(f"   Loading labeled embeddings...")
-    X_labeled_emb = load_embeddings_chunked(
-        training_embeddings, labeled_idx_use, desc="   Loading labeled"
-    )
-    if USE_CLUSTER_ID_AS_FEATURE:
-        X_labeled = append_cluster_onehot(
-            X_labeled_emb, training_cluster_labels[labeled_idx_use],
-            cluster_to_idx, n_clusters_feat
-        )
-        del X_labeled_emb; gc.collect()
+    # Check if there's a saved trained classifier (skip training if so)
+    stage4_clf = load_checkpoint('stage4_trained_classifier')
+    if stage4_clf is not None and len(stage4_clf['labeled_idx_use']) == len(labeled_idx_use):
+        y_labeled = stage4_clf['y_labeled']
+        print(f"   ✓ Restored trained classifier (skip training)")
     else:
-        X_labeled = X_labeled_emb
-    y_labeled = sample_labels[labeled_idx_use]
-    print(f"   ✓ X_labeled: {X_labeled.shape}, y distribution: {Counter(y_labeled.tolist())}")
+        print(f"   Loading labeled embeddings...")
+        X_labeled_emb = load_embeddings_chunked(
+            training_embeddings, labeled_idx_use, desc="   Loading labeled"
+        )
+        if USE_CLUSTER_ID_AS_FEATURE:
+            X_labeled = append_cluster_onehot(
+                X_labeled_emb, training_cluster_labels[labeled_idx_use],
+                cluster_to_idx, n_clusters_feat
+            )
+            del X_labeled_emb; gc.collect()
+        else:
+            X_labeled = X_labeled_emb
+        y_labeled = sample_labels[labeled_idx_use]
+        print(f"   ✓ X_labeled: {X_labeled.shape}, y distribution: {Counter(y_labeled.tolist())}")
+        # Save stage4 checkpoint (labeled_idx_use + y_labeled) so step 6 can resume
+        save_checkpoint(
+            'stage4_trained_classifier',
+            labeled_idx_use=np.asarray(labeled_idx_use, dtype=np.int64),
+            y_labeled=y_labeled,
+        )
 
     # Load test data (for final prediction)
     print("\n   Loading test data for final prediction...")
