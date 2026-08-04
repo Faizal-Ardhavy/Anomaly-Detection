@@ -52,6 +52,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 from sklearn.linear_model import LogisticRegression
 import joblib
+import time
 from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
@@ -404,6 +405,49 @@ def predict_kmeans_from_centroids(test_embeddings, cluster_ids, centroids,
     return predictions
 
 
+def predict_test_batched(test_embeddings, cluster_labels_for_test, clf,
+                         cluster_to_idx, n_clusters_feat,
+                         use_cluster_feature=True, batch_size=20_000,
+                         desc="   Test predict"):
+    """Predict on a (possibly memmap-backed) test array chunk by chunk.
+
+    Avoids materialising the full test matrix in RAM, which is the slowest
+    step on huge memmaps when using np.asarray.
+    """
+    n_test = len(test_embeddings)
+    preds = np.empty(n_test, dtype=np.int32)
+    probas = np.empty(n_test, dtype=np.float32)
+    use_gpu = USE_GPU and CUML_AVAILABLE and hasattr(clf, 'model')
+    for start in tqdm(range(0, n_test, batch_size), desc=desc):
+        end = min(start + batch_size, n_test)
+        chunk_emb = np.asarray(
+            test_embeddings[start:end], dtype=np.float32, copy=True
+        )
+        if use_cluster_feature:
+            chunk = append_cluster_onehot(
+                chunk_emb,
+                cluster_labels_for_test[start:end],
+                cluster_to_idx,
+                n_clusters_feat,
+            )
+        else:
+            chunk = chunk_emb
+        if use_gpu:
+            try:
+                import cupy as cp
+                chunk_gpu = cp.asarray(chunk, dtype=cp.float32)
+                chunk_proba = cp.asnumpy(clf.model.predict_proba(chunk_gpu))
+            except Exception:
+                chunk_proba = clf.predict_proba(chunk)
+        else:
+            chunk_proba = clf.predict_proba(chunk)
+        preds[start:end] = chunk_proba.argmax(axis=1)
+        probas[start:end] = chunk_proba.max(axis=1)
+        del chunk_emb, chunk
+        gc.collect()
+    return preds, probas
+
+
 def build_kmeans_centroids_from_labels(training_embeddings, training_cluster_labels,
                                        chunk_size=300000):
     labels = np.asarray(training_cluster_labels)
@@ -698,16 +742,25 @@ def build_onehot_cluster_mapping(cluster_ids, min_freq=MIN_CLUSTER_ID_FREQ):
     return {int(c): i for i, c in enumerate(valid)}, len(valid)
 
 
-def append_cluster_onehot(embeddings, cluster_ids, cluster_to_idx, n_clusters):
-    """Vectorized one-hot encoding of cluster IDs (no Python loop)."""
+def append_cluster_onehot(embeddings, cluster_ids, cluster_to_idx, n_clusters, chunk_size=50_000):
+    """Vectorized one-hot encoding of cluster IDs (no Python loop).
+
+    Builds the one-hot block in chunks to keep the temporary float32 matrix
+    size reasonable for very large sample counts.
+    """
     n_samples = len(embeddings)
-    # Vectorize cluster_id -> one-hot index lookup
+    embeddings_arr = np.asarray(embeddings, dtype=np.float32)
     ids = np.array([cluster_to_idx.get(int(c), -1) for c in cluster_ids], dtype=np.int64)
     valid = ids >= 0
     onehot = np.zeros((n_samples, n_clusters), dtype=np.float32)
-    # Assign 1.0 to valid positions in one shot (vectorized)
-    onehot[np.arange(n_samples)[valid], ids[valid]] = 1.0
-    return np.concatenate([np.asarray(embeddings, dtype=np.float32), onehot], axis=1)
+    valid_rows = np.flatnonzero(valid)
+    for start in tqdm(range(0, len(valid_rows), chunk_size),
+                       desc="   One-hot chunks", leave=False):
+        end = min(start + chunk_size, len(valid_rows))
+        rows = valid_rows[start:end]
+        cols = ids[rows]
+        onehot[rows, cols] = 1.0
+    return np.concatenate([embeddings_arr, onehot], axis=1)
 
 
 def load_embeddings_chunked(embeddings_source, indices, chunk_size=50_000, desc="   Loading"):
@@ -850,23 +903,42 @@ def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_M
         return clf
 
 
-def pseudo_label_unlabeled(clf, X_unlabeled, threshold=PSEUDO_CONFIDENCE_THRESHOLD):
-    """Predict on unlabeled set, return (pseudo_mask, pseudo_labels)."""
-    if USE_GPU and CUML_AVAILABLE and hasattr(clf, 'model'):
-        # GPU pipeline: skip numpy-conversion overhead
+def pseudo_label_unlabeled(clf, X_unlabeled, threshold=PSEUDO_CONFIDENCE_THRESHOLD,
+                            batch_size=20_000):
+    """Predict on unlabeled set in chunks and return (pseudo_mask, pseudo_labels).
+
+    Chunking avoids the implicit temporary matrix created by predict_proba
+    on the full input and keeps the GPU/CPU memory footprint low.
+    """
+    n = len(X_unlabeled)
+    use_gpu = USE_GPU and CUML_AVAILABLE and hasattr(clf, 'model')
+    if use_gpu:
         try:
             import cupy as cp
-            X_gpu = cp.asarray(X_unlabeled, dtype=cp.float32)
-            proba = cp.asnumpy(clf.model.predict_proba(X_gpu))
+            max_probs = np.empty(n, dtype=np.float32)
+            predictions = np.empty(n, dtype=np.int32)
+            for start in tqdm(range(0, n, batch_size), desc="   Pseudo predict", leave=False):
+                end = min(start + batch_size, n)
+                chunk = X_unlabeled[start:end]
+                chunk_gpu = cp.asarray(chunk, dtype=cp.float32)
+                chunk_proba = cp.asnumpy(clf.model.predict_proba(chunk_gpu))
+                max_probs[start:end] = chunk_proba.max(axis=1)
+                predictions[start:end] = chunk_proba.argmax(axis=1)
+                del chunk_gpu, chunk_proba, chunk
         except Exception:
-            proba = clf.predict_proba(X_unlabeled)
-    else:
-        proba = clf.predict_proba(X_unlabeled)
-    max_probs = proba.max(axis=1)
-    predictions = proba.argmax(axis=1)
+            use_gpu = False
+    if not use_gpu:
+        max_probs = np.empty(n, dtype=np.float32)
+        predictions = np.empty(n, dtype=np.int32)
+        for start in tqdm(range(0, n, batch_size), desc="   Pseudo predict", leave=False):
+            end = min(start + batch_size, n)
+            chunk_proba = clf.predict_proba(X_unlabeled[start:end])
+            max_probs[start:end] = chunk_proba.max(axis=1)
+            predictions[start:end] = chunk_proba.argmax(axis=1)
+            del chunk_proba
     pseudo_mask = max_probs >= threshold
     n_pseudo = int(pseudo_mask.sum())
-    print(f"   Pseudo-labels @ {threshold:.0%}: {n_pseudo:,} / {len(X_unlabeled):,}")
+    print(f"   Pseudo-labels @ {threshold:.0%}: {n_pseudo:,} / {n:,}")
     return pseudo_mask, predictions, max_probs
 
 
@@ -1301,15 +1373,21 @@ def main():
             training_embeddings, unlabeled_sample, desc=f"   It{it} load unlabeled"
         )
         if USE_CLUSTER_ID_AS_FEATURE:
+            print(f"   [{time.strftime('%H:%M:%S')}] Building cluster one-hot for unlabeled...")
+            t0 = time.time()
             X_unlabeled = append_cluster_onehot(
                 X_unlabeled_emb, training_cluster_labels[unlabeled_sample],
                 cluster_to_idx, n_clusters_feat
             )
             del X_unlabeled_emb; gc.collect()
+            print(f"   [{time.strftime('%H:%M:%S')}] One-hot built in {time.time()-t0:.1f}s, shape={X_unlabeled.shape}")
         else:
             X_unlabeled = X_unlabeled_emb
 
+        print(f"   [{time.strftime('%H:%M:%S')}] Starting pseudo-labeling on {len(X_unlabeled):,} samples...")
+        t1 = time.time()
         pseudo_mask, pseudo_preds, pseudo_confs = pseudo_label_unlabeled(final_clf, X_unlabeled)
+        print(f"   [{time.strftime('%H:%M:%S')}] Pseudo-labeling completed in {time.time()-t1:.1f}s")
         n_pseudo = int(pseudo_mask.sum())
 
         # Add pseudo-labels to training set
@@ -1318,18 +1396,21 @@ def main():
         train_indices.extend(new_pseudo_idx.tolist())
         train_labels_combined.extend(new_pseudo_lbl.tolist())
 
-        # Evaluate on test set (early monitoring)
-        X_test_emb = np.asarray(test_embeddings, dtype=np.float32)
-        if USE_CLUSTER_ID_AS_FEATURE:
-            X_test = append_cluster_onehot(
-                X_test_emb, test_cluster_labels, cluster_to_idx, n_clusters_feat
-            )
-        else:
-            X_test = X_test_emb
-        test_preds = final_clf.predict(X_test)
-        test_proba = final_clf.predict_proba(X_test).max(axis=1)
+        # Evaluate on test set (early monitoring) - batched to avoid np.asarray on big memmaps
+        print(f"   [{time.strftime('%H:%M:%S')}] Evaluating test set (batched)...")
+        t2 = time.time()
+        test_preds, test_proba = predict_test_batched(
+            test_embeddings,
+            test_cluster_labels,
+            final_clf,
+            cluster_to_idx,
+            n_clusters_feat,
+            use_cluster_feature=USE_CLUSTER_ID_AS_FEATURE,
+            batch_size=20_000,
+            desc=f"   It{it} test predict",
+        )
         test_acc = accuracy_score(test_gt_labels, test_preds)
-        print(f"   Test accuracy (early): {test_acc:.4f}")
+        print(f"   [{time.strftime('%H:%M:%S')}] Test prediction done in {time.time()-t2:.1f}s, accuracy={test_acc:.4f}")
 
         history.append({
             'iteration': it,
@@ -1370,14 +1451,17 @@ def main():
     print("="*70)
     if final_clf is None:
         raise RuntimeError("Classifier was never trained")
-    X_test_emb = np.asarray(test_embeddings, dtype=np.float32)
-    if USE_CLUSTER_ID_AS_FEATURE:
-        X_test = append_cluster_onehot(X_test_emb, test_cluster_labels, cluster_to_idx, n_clusters_feat)
-    else:
-        X_test = X_test_emb
-    final_predictions = final_clf.predict(X_test)
-    final_proba = final_clf.predict_proba(X_test)
-    final_confidence = final_proba.max(axis=1)
+    print("   Using batched prediction to avoid loading full test memmap...")
+    final_predictions, final_confidence = predict_test_batched(
+        test_embeddings,
+        test_cluster_labels,
+        final_clf,
+        cluster_to_idx,
+        n_clusters_feat,
+        use_cluster_feature=USE_CLUSTER_ID_AS_FEATURE,
+        batch_size=20_000,
+        desc="   Final test predict",
+    )
     print(f"   ✓ Predicted {len(final_predictions):,} test samples")
     print(f"   Distribution: {Counter(final_predictions.tolist())}")
 
