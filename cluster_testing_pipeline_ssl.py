@@ -1227,6 +1227,13 @@ def main():
             labeled_idx_use=np.asarray(labeled_idx_use, dtype=np.int64),
             y_labeled=y_labeled,
         )
+        # Free memory - X_labeled no longer needed after step 4
+        try:
+            del X_labeled, X_labeled_emb
+        except NameError:
+            pass
+        gc.collect()
+        print(f"   ✓ Freed X_labeled memory ({LABELED_SUBSAMPLE_CAP/1e6:.1f}M samples)")
 
     # Load test data (for final prediction)
     print("\n   Loading test data for final prediction...")
@@ -1411,6 +1418,14 @@ def main():
         )
         test_acc = accuracy_score(test_gt_labels, test_preds)
         print(f"   [{time.strftime('%H:%M:%S')}] Test prediction done in {time.time()-t2:.1f}s, accuracy={test_acc:.4f}")
+
+        # Free memory before next iteration (X_unlabeled, X_train, etc.)
+        try:
+            del X_unlabeled, X_unlabeled_emb, X_train, X_train_emb
+        except NameError:
+            pass
+        gc.collect()
+        print(f"   [{time.strftime('%H:%M:%S')}] Memory freed after iteration {it}")
 
         history.append({
             'iteration': it,
