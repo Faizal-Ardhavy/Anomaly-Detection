@@ -738,6 +738,69 @@ def load_embeddings_chunked(embeddings_source, indices, chunk_size=50_000, desc=
     return out[inverse_order]
 
 
+def sample_unseen_unlabeled_cluster_aware(unlabeled_idx, cluster_labels, used_indices,
+                                          sample_cap, seed=42):
+    """Sample unseen unlabeled rows with broad cluster representation.
+
+    A random candidate pool is drawn without scanning/sorting the complete
+    unlabeled array. Candidates are then selected round-robin by cluster so
+    small clusters are represented before remaining capacity is filled.
+    """
+    rng = np.random.default_rng(seed)
+    n_unlabeled = len(unlabeled_idx)
+    if n_unlabeled == 0 or sample_cap <= 0:
+        return np.empty(0, dtype=np.int64)
+
+    target = min(int(sample_cap), n_unlabeled)
+    used = set(int(i) for i in used_indices)
+    selected = []
+    selected_set = set()
+    oversample_factor = 3
+    max_rounds = 8
+
+    print(f"   Sampling up to {target:,} unseen unlabeled samples cluster-aware...")
+    for round_no in range(max_rounds):
+        needed = target - len(selected)
+        if needed <= 0:
+            break
+        draw_size = min(n_unlabeled, max(needed * oversample_factor, 10_000))
+        positions = rng.choice(n_unlabeled, size=draw_size, replace=False)
+        candidates = np.asarray(unlabeled_idx[positions], dtype=np.int64)
+        keep = np.fromiter(
+            (int(i) not in used and int(i) not in selected_set for i in candidates),
+            dtype=bool, count=len(candidates)
+        )
+        candidates = np.unique(candidates[keep])
+        if len(candidates) == 0:
+            continue
+
+        candidate_clusters = np.asarray(cluster_labels[candidates], dtype=np.int64)
+        order = np.lexsort((rng.random(len(candidates)), candidate_clusters))
+        candidates = candidates[order]
+        candidate_clusters = candidate_clusters[order]
+        groups = np.split(candidates, np.flatnonzero(np.diff(candidate_clusters)) + 1)
+
+        # Round-robin prevents large clusters from consuming the whole sample cap.
+        max_group_len = max(len(group) for group in groups)
+        for offset in range(max_group_len):
+            for group in groups:
+                if offset < len(group):
+                    idx = int(group[offset])
+                    if idx not in selected_set:
+                        selected.append(idx)
+                        selected_set.add(idx)
+                        if len(selected) >= target:
+                            break
+            if len(selected) >= target:
+                break
+        print(f"      Sampling round {round_no + 1}: {len(selected):,}/{target:,}")
+
+    result = np.asarray(selected[:target], dtype=np.int64)
+    if len(result) < target:
+        print(f"   ⚠️ Obtained {len(result):,}/{target:,} unseen samples")
+    return result
+
+
 def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_MAX_ITER):
     """Train classifier (GPU cuML if available, else sklearn CPU)."""
     n_samples, n_features = X_train.shape
@@ -1214,21 +1277,25 @@ def main():
         y_train_combined = np.array([idx_to_label[int(i)] for i in all_idx], dtype=np.int32)
 
         final_clf = train_ssl_classifier(X_train, y_train_combined)
+        del X_train, y_train_combined
+        gc.collect()
 
-        # Predict on UNLABELED training samples (the ones we still haven't pseudo-labeled)
-        unlabeled_remaining = np.setdiff1d(unlabeled_idx, np.array(train_indices))
-        n_remaining = len(unlabeled_remaining)
-        print(f"   Unlabeled remaining: {n_remaining:,}")
+        # Sample unseen unlabeled rows directly. This avoids np.setdiff1d over
+        # ~166M indices and gives every represented cluster an early chance.
+        unlabeled_sample = sample_unseen_unlabeled_cluster_aware(
+            unlabeled_idx,
+            training_cluster_labels,
+            train_indices,
+            CLASSIFIER_SAMPLE_CAP,
+            seed=999 + it,
+        )
+        n_remaining_estimate = max(0, len(unlabeled_idx) - len(train_indices))
+        print(f"   Unlabeled remaining (estimated): {n_remaining_estimate:,}")
+        print(f"   Unlabeled selected this iteration: {len(unlabeled_sample):,}")
 
-        if n_remaining == 0:
-            print(f"   ✓ All training samples have been pseudo-labeled")
+        if len(unlabeled_sample) == 0:
+            print(f"   ✓ No unseen unlabeled samples available")
             break
-
-        if n_remaining > CLASSIFIER_SAMPLE_CAP:
-            rng = np.random.default_rng(999 + it)
-            unlabeled_sample = rng.choice(unlabeled_remaining, CLASSIFIER_SAMPLE_CAP, replace=False)
-        else:
-            unlabeled_sample = unlabeled_remaining
 
         X_unlabeled_emb = load_embeddings_chunked(
             training_embeddings, unlabeled_sample, desc=f"   It{it} load unlabeled"
