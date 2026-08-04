@@ -749,9 +749,11 @@ def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_M
             X_gpu = cp.asarray(X_train, dtype=cp.float32)
             y_gpu = cp.asarray(y_train, dtype=cp.int32)
             print(f"   Training cuML LogReg on GPU (C={C}, samples={n_samples:,}, features={n_features:,})...")
+            # cuML currently supports only the quasi-Newton solver in this environment.
+            # Keep the sklearn-compatible fallback for older/incompatible cuML builds.
             clf = cuLR(
                 C=C, max_iter=max_iter,
-                class_weight='balanced', solver='lbfgs',
+                class_weight='balanced', solver='qn',
                 output_type='numpy'
             )
             clf.fit(X_gpu, y_gpu)
