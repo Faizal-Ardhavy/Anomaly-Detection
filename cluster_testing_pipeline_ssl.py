@@ -1391,9 +1391,29 @@ def main():
         else:
             X_unlabeled = X_unlabeled_emb
 
-        print(f"   [{time.strftime('%H:%M:%S')}] Starting pseudo-labeling on {len(X_unlabeled):,} samples...")
+        # Process pseudo-labeling in CHUNKS to avoid OOM
+        # (1M samples × 1722 features × 4 bytes = 6.5GB peak)
+        PSEUDO_CHUNK_SIZE = 100_000  # Smaller chunks for memory safety
+        n_total = len(X_unlabeled)
+        all_pseudo_masks = []
+        all_pseudo_preds = []
+        all_pseudo_confs = []
+        print(f"   [{time.strftime('%H:%M:%S')}] Starting pseudo-labeling on {n_total:,} samples (chunks={PSEUDO_CHUNK_SIZE:,})...")
         t1 = time.time()
-        pseudo_mask, pseudo_preds, pseudo_confs = pseudo_label_unlabeled(final_clf, X_unlabeled)
+        for start in range(0, n_total, PSEUDO_CHUNK_SIZE):
+            end = min(start + PSEUDO_CHUNK_SIZE, n_total)
+            X_chunk = X_unlabeled[start:end]
+            mask_chunk, preds_chunk, confs_chunk = pseudo_label_unlabeled(final_clf, X_chunk)
+            all_pseudo_masks.append(mask_chunk)
+            all_pseudo_preds.append(preds_chunk)
+            all_pseudo_confs.append(confs_chunk)
+            del X_chunk
+            gc.collect()
+        pseudo_mask = np.concatenate(all_pseudo_masks)
+        pseudo_preds = np.concatenate(all_pseudo_preds)
+        pseudo_confs = np.concatenate(all_pseudo_confs)
+        del all_pseudo_masks, all_pseudo_preds, all_pseudo_confs, X_unlabeled, X_unlabeled_emb
+        gc.collect()
         print(f"   [{time.strftime('%H:%M:%S')}] Pseudo-labeling completed in {time.time()-t1:.1f}s")
         n_pseudo = int(pseudo_mask.sum())
 
@@ -1402,6 +1422,8 @@ def main():
         new_pseudo_lbl = pseudo_preds[pseudo_mask]
         train_indices.extend(new_pseudo_idx.tolist())
         train_labels_combined.extend(new_pseudo_lbl.tolist())
+        del pseudo_mask, pseudo_preds, pseudo_confs
+        gc.collect()
 
         # Evaluate on test set (early monitoring) - batched to avoid np.asarray on big memmaps
         print(f"   [{time.strftime('%H:%M:%S')}] Evaluating test set (batched)...")
