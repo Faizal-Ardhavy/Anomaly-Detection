@@ -1424,41 +1424,51 @@ def main():
             training_embeddings, unlabeled_sample, desc=f"   It{it} load unlabeled"
         )
         memlog(f"after It{it} load unlabeled")
-        if USE_CLUSTER_ID_AS_FEATURE:
-            print(f"   [{time.strftime('%H:%M:%S')}] Building cluster one-hot for unlabeled...")
-            t0 = time.time()
-            X_unlabeled = append_cluster_onehot(
-                X_unlabeled_emb, training_cluster_labels[unlabeled_sample],
-                cluster_to_idx, n_clusters_feat
-            )
-            del X_unlabeled_emb; gc.collect()
-            memlog(f"after one-hot build")
-            print(f"   [{time.strftime('%H:%M:%S')}] One-hot built in {time.time()-t0:.1f}s, shape={X_unlabeled.shape}")
-        else:
-            X_unlabeled = X_unlabeled_emb
 
-        # Process pseudo-labeling in CHUNKS to avoid OOM
-        # (1M samples × 1722 features × 4 bytes = 6.5GB peak)
-        PSEUDO_CHUNK_SIZE = 100_000  # Smaller chunks for memory safety
-        n_total = len(X_unlabeled)
+        # TRULY CHUNKED: process each chunk end-to-end (load → one-hot → predict → save → free)
+        # This avoids ever allocating the full 1M × 1722 = 6.5GB array
+        PSEUDO_CHUNK_SIZE = 50_000  # Smaller chunks = much lower peak memory
+        n_total = len(unlabeled_sample)
         all_pseudo_masks = []
         all_pseudo_preds = []
         all_pseudo_confs = []
-        print(f"   [{time.strftime('%H:%M:%S')}] Starting pseudo-labeling on {n_total:,} samples (chunks={PSEUDO_CHUNK_SIZE:,})...")
+        print(f"   [{time.strftime('%H:%M:%S')}] Starting end-to-end chunked pseudo-labeling ({n_total:,} samples, {n_total//PSEUDO_CHUNK_SIZE + 1} chunks of {PSEUDO_CHUNK_SIZE:,})...")
         t1 = time.time()
         for start in range(0, n_total, PSEUDO_CHUNK_SIZE):
             end = min(start + PSEUDO_CHUNK_SIZE, n_total)
-            X_chunk = X_unlabeled[start:end]
+            chunk_indices = unlabeled_sample[start:end]
+            # Load ONLY this chunk of embeddings
+            X_chunk_emb = load_embeddings_chunked(
+                training_embeddings, chunk_indices, desc=f"   It{it} chunk {start//PSEUDO_CHUNK_SIZE+1}"
+            )
+            # One-hot (only this chunk)
+            if USE_CLUSTER_ID_AS_FEATURE:
+                X_chunk = append_cluster_onehot(
+                    X_chunk_emb, training_cluster_labels[chunk_indices],
+                    cluster_to_idx, n_clusters_feat
+                )
+                del X_chunk_emb; gc.collect()
+            else:
+                X_chunk = X_chunk_emb
+            # Predict on chunk
             mask_chunk, preds_chunk, confs_chunk = pseudo_label_unlabeled(final_clf, X_chunk)
             all_pseudo_masks.append(mask_chunk)
             all_pseudo_preds.append(preds_chunk)
             all_pseudo_confs.append(confs_chunk)
-            del X_chunk
+            # Free EVERYTHING before next chunk
+            del X_chunk, X_chunk_emb, mask_chunk, preds_chunk, confs_chunk
+            if USE_GPU and CUML_AVAILABLE:
+                try:
+                    import cupy as cp
+                    cp.get_default_memory_pool().free_all_blocks()
+                except Exception:
+                    pass
             gc.collect()
+        # Concatenate at the end (only 1M integers, ~12MB, very small)
         pseudo_mask = np.concatenate(all_pseudo_masks)
         pseudo_preds = np.concatenate(all_pseudo_preds)
         pseudo_confs = np.concatenate(all_pseudo_confs)
-        del all_pseudo_masks, all_pseudo_preds, all_pseudo_confs, X_unlabeled, X_unlabeled_emb
+        del all_pseudo_masks, all_pseudo_preds, all_pseudo_confs, X_unlabeled_emb
         gc.collect()
         print(f"   [{time.strftime('%H:%M:%S')}] Pseudo-labeling completed in {time.time()-t1:.1f}s")
         n_pseudo = int(pseudo_mask.sum())
