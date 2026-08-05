@@ -884,6 +884,12 @@ def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_M
             import cupy as cp
             X_gpu = cp.asarray(X_train, dtype=cp.float32)
             y_gpu = cp.asarray(y_train, dtype=cp.int32)
+            # Free CPU copies of the training data - GPU has them now
+            try:
+                del X_train, y_train
+            except NameError:
+                pass
+            gc.collect()
             print(f"   Training cuML LogReg on GPU (C={C}, samples={n_samples:,}, features={n_features:,})...")
             # cuML currently supports only the quasi-Newton solver in this environment.
             # Keep the sklearn-compatible fallback for older/incompatible cuML builds.
@@ -895,6 +901,14 @@ def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_M
             clf.fit(X_gpu, y_gpu)
             train_acc = clf.score(X_gpu, y_gpu)
             print(f"   ✓ Train accuracy (GPU): {train_acc:.4f}")
+            # Free training GPU arrays (they're now baked into model weights)
+            try:
+                del X_gpu, y_gpu
+            except NameError:
+                pass
+            # Critical: free ALL GPU memory pool blocks
+            cp.get_default_memory_pool().free_all_blocks()
+            gc.collect()
             # Wrap in a simple class for predict_proba compat
             class GPUWrapper:
                 def __init__(self, model):
@@ -906,6 +920,13 @@ def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_M
                     X_gpu = cp.asarray(X, dtype=cp.float32)
                     proba = self.model.predict_proba(X_gpu)
                     return cp.asnumpy(proba)
+                def free_gpu(self):
+                    """Explicitly free GPU memory held by the model."""
+                    try:
+                        del self.model
+                    except Exception:
+                        pass
+                    cp.get_default_memory_pool().free_all_blocks()
             return GPUWrapper(clf)
         except Exception as e:
             print(f"   ⚠ cuML failed ({type(e).__name__}: {str(e)[:80]}), falling back to sklearn")
@@ -945,6 +966,8 @@ def pseudo_label_unlabeled(clf, X_unlabeled, threshold=PSEUDO_CONFIDENCE_THRESHO
                 max_probs[start:end] = chunk_proba.max(axis=1)
                 predictions[start:end] = chunk_proba.argmax(axis=1)
                 del chunk_gpu, chunk_proba, chunk
+                # Critical: free GPU memory pool after each batch
+                cp.get_default_memory_pool().free_all_blocks()
         except Exception:
             use_gpu = False
     if not use_gpu:
@@ -1493,6 +1516,17 @@ def main():
             final_clf=final_clf,
             prev_test_predictions=prev_test_predictions,
         )
+
+        # Critical: free GPU memory before next iteration
+        if USE_GPU and CUML_AVAILABLE:
+            try:
+                import cupy as cp
+                if hasattr(final_clf, 'free_gpu'):
+                    final_clf.free_gpu()
+                cp.get_default_memory_pool().free_all_blocks()
+            except Exception:
+                pass
+        gc.collect()
 
         # Convergence
         if prediction_change is not None and prediction_change < CONVERGENCE_TOL:
