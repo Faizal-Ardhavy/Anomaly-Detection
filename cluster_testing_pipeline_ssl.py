@@ -57,6 +57,22 @@ from tqdm import tqdm
 import warnings
 warnings.filterwarnings('ignore')
 
+
+def get_rss_mb():
+    try:
+        import psutil
+        return psutil.Process().memory_info().rss / (1024 * 1024)
+    except Exception:
+        try:
+            import resource
+            return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        except Exception:
+            return float('nan')
+
+
+def memlog(label):
+    print(f"   [mem] {label}: RSS={get_rss_mb():,.0f} MB")
+
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
@@ -749,7 +765,11 @@ def append_cluster_onehot(embeddings, cluster_ids, cluster_to_idx, n_clusters, c
     size reasonable for very large sample counts.
     """
     n_samples = len(embeddings)
-    embeddings_arr = np.asarray(embeddings, dtype=np.float32)
+    # Avoid an extra full copy when the input is already a float32 contiguous array.
+    if isinstance(embeddings, np.ndarray) and embeddings.dtype == np.float32 and embeddings.flags.c_contiguous:
+        embeddings_arr = embeddings
+    else:
+        embeddings_arr = np.asarray(embeddings, dtype=np.float32)
     ids = np.array([cluster_to_idx.get(int(c), -1) for c in cluster_ids], dtype=np.int64)
     valid = ids >= 0
     onehot = np.zeros((n_samples, n_clusters), dtype=np.float32)
@@ -1343,6 +1363,7 @@ def main():
         X_train_emb = load_embeddings_chunked(
             training_embeddings, all_idx, desc=f"   It{it} load train"
         )
+        memlog(f"after It{it} load train")
         if USE_CLUSTER_ID_AS_FEATURE:
             X_train = append_cluster_onehot(
                 X_train_emb, training_cluster_labels[all_idx],
@@ -1379,6 +1400,7 @@ def main():
         X_unlabeled_emb = load_embeddings_chunked(
             training_embeddings, unlabeled_sample, desc=f"   It{it} load unlabeled"
         )
+        memlog(f"after It{it} load unlabeled")
         if USE_CLUSTER_ID_AS_FEATURE:
             print(f"   [{time.strftime('%H:%M:%S')}] Building cluster one-hot for unlabeled...")
             t0 = time.time()
@@ -1387,6 +1409,7 @@ def main():
                 cluster_to_idx, n_clusters_feat
             )
             del X_unlabeled_emb; gc.collect()
+            memlog(f"after one-hot build")
             print(f"   [{time.strftime('%H:%M:%S')}] One-hot built in {time.time()-t0:.1f}s, shape={X_unlabeled.shape}")
         else:
             X_unlabeled = X_unlabeled_emb
