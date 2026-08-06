@@ -1498,10 +1498,13 @@ def main():
         print(f"   [{time.strftime('%H:%M:%S')}] Test prediction done in {time.time()-t2:.1f}s, accuracy={test_acc:.4f}")
 
         # Free memory before next iteration (X_unlabeled, X_train, etc.)
-        try:
-            del X_unlabeled, X_unlabeled_emb, X_train, X_train_emb
-        except NameError:
-            pass
+        for var_name in ('X_unlabeled', 'X_unlabeled_emb', 'X_train', 'X_train_emb',
+                         'X_chunk', 'X_chunk_emb'):
+            if var_name in locals() or var_name in globals():
+                try:
+                    del globals()[var_name]
+                except KeyError:
+                    pass
         gc.collect()
         print(f"   [{time.strftime('%H:%M:%S')}] Memory freed after iteration {it}")
 
