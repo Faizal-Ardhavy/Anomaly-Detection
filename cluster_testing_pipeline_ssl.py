@@ -1447,7 +1447,6 @@ def main():
                     X_chunk_emb, training_cluster_labels[chunk_indices],
                     cluster_to_idx, n_clusters_feat
                 )
-                del X_chunk_emb; gc.collect()
             else:
                 X_chunk = X_chunk_emb
             # Predict on chunk
@@ -1455,8 +1454,12 @@ def main():
             all_pseudo_masks.append(mask_chunk)
             all_pseudo_preds.append(preds_chunk)
             all_pseudo_confs.append(confs_chunk)
-            # Free EVERYTHING before next chunk
-            del X_chunk, X_chunk_emb, mask_chunk, preds_chunk, confs_chunk
+            # Free EVERYTHING before next chunk (use try/except since some may be undefined)
+            for var in ['X_chunk', 'X_chunk_emb', 'mask_chunk', 'preds_chunk', 'confs_chunk']:
+                try:
+                    del globals()[var]
+                except (KeyError, NameError):
+                    pass
             if USE_GPU and CUML_AVAILABLE:
                 try:
                     import cupy as cp
