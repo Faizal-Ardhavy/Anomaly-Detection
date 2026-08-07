@@ -874,6 +874,39 @@ def sample_unseen_unlabeled_cluster_aware(unlabeled_idx, cluster_labels, used_in
     return result
 
 
+class _GPUClassifierWrapper:
+    """Picklable wrapper around a cuML model, defined at module scope.
+
+    joblib cannot pickle locally-defined classes (defined inside a function),
+    so this wrapper lives at module scope and lazily imports cupy.
+    """
+
+    def __init__(self, model):
+        self.model = model
+
+    def predict(self, X):
+        import cupy as cp
+        X_gpu = cp.asarray(X, dtype=cp.float32)
+        return cp.asnumpy(self.model.predict(X_gpu))
+
+    def predict_proba(self, X):
+        import cupy as cp
+        X_gpu = cp.asarray(X, dtype=cp.float32)
+        proba = self.model.predict_proba(X_gpu)
+        return cp.asnumpy(proba)
+
+    def free_gpu(self):
+        try:
+            del self.model
+        except Exception:
+            pass
+        try:
+            import cupy as cp
+            cp.get_default_memory_pool().free_all_blocks()
+        except Exception:
+            pass
+
+
 def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_MAX_ITER):
     """Train classifier (GPU cuML if available, else sklearn CPU)."""
     n_samples, n_features = X_train.shape
@@ -909,25 +942,7 @@ def train_ssl_classifier(X_train, y_train, C=CLASSIFIER_C, max_iter=CLASSIFIER_M
             # Critical: free ALL GPU memory pool blocks
             cp.get_default_memory_pool().free_all_blocks()
             gc.collect()
-            # Wrap in a simple class for predict_proba compat
-            class GPUWrapper:
-                def __init__(self, model):
-                    self.model = model
-                def predict(self, X):
-                    X_gpu = cp.asarray(X, dtype=cp.float32)
-                    return cp.asnumpy(self.model.predict(X_gpu))
-                def predict_proba(self, X):
-                    X_gpu = cp.asarray(X, dtype=cp.float32)
-                    proba = self.model.predict_proba(X_gpu)
-                    return cp.asnumpy(proba)
-                def free_gpu(self):
-                    """Explicitly free GPU memory held by the model."""
-                    try:
-                        del self.model
-                    except Exception:
-                        pass
-                    cp.get_default_memory_pool().free_all_blocks()
-            return GPUWrapper(clf)
+            return _GPUClassifierWrapper(clf)
         except Exception as e:
             print(f"   ⚠ cuML failed ({type(e).__name__}: {str(e)[:80]}), falling back to sklearn")
             use_gpu = False
