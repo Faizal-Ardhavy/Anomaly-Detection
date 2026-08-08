@@ -79,7 +79,7 @@ def memlog(label):
 
 # Dataset & Algorithm Selection
 DATASET = "Thunderbird"  # "BGL" or "Thunderbird"
-ALGORITHM = "dbscan"     # "kmeans" or "dbscan"
+ALGORITHM = "kmeans"     # "kmeans" or "dbscan"
 EMBEDDING_TYPE = "base"  # "base", "pca256", or "pca128"
 
 # Template paths for per-sample metadata labeling
