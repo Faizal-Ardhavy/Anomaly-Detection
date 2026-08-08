@@ -1577,9 +1577,15 @@ def main():
     if final_clf is None:
         raise RuntimeError("Classifier was never trained")
 
-    # Check if final_clf has GPU model attribute (may have been lost on pickle)
-    if not hasattr(final_clf, 'model') and not hasattr(final_clf, 'predict_proba'):
-        print("   ⚠️ Loaded classifier missing model. Retraining from saved training data...")
+    # Check if final_clf has GPU model attribute (may have been lost on pickle).
+    # NOTE: predict_proba method exists on the wrapper class, but the inner .model
+    # attribute may be missing if the pickle didn't serialize cuML state cleanly.
+    needs_retrain = (
+        not hasattr(final_clf, 'model') or
+        getattr(final_clf, 'model', None) is None
+    )
+    if needs_retrain:
+        print("   ⚠️ Loaded classifier missing .model. Retraining from saved training data...")
         # Retrain using last saved training indices + labels
         last_iter = MAX_ITERATIONS
         for it in range(MAX_ITERATIONS, 0, -1):
@@ -1610,6 +1616,7 @@ def main():
         final_clf = train_ssl_classifier(X_train, y_train)
         del X_train, y_train
         gc.collect()
+        print("   ✓ Retrained classifier ready for prediction")
 
     print("   Using batched prediction to avoid loading full test memmap...")
     final_predictions, final_confidence = predict_test_batched(
