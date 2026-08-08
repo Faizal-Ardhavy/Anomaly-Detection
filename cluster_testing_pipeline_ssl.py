@@ -1576,6 +1576,41 @@ def main():
     print("="*70)
     if final_clf is None:
         raise RuntimeError("Classifier was never trained")
+
+    # Check if final_clf has GPU model attribute (may have been lost on pickle)
+    if not hasattr(final_clf, 'model') and not hasattr(final_clf, 'predict_proba'):
+        print("   ⚠️ Loaded classifier missing model. Retraining from saved training data...")
+        # Retrain using last saved training indices + labels
+        last_iter = MAX_ITERATIONS
+        for it in range(MAX_ITERATIONS, 0, -1):
+            ckpt = load_checkpoint(f'stage6_iteration_{it}')
+            if ckpt is not None:
+                last_iter = it
+                train_indices = ckpt['train_indices']
+                train_labels_combined = ckpt['train_labels_combined']
+                break
+        if len(train_indices) > CLASSIFIER_SAMPLE_CAP:
+            rng = np.random.default_rng(999)
+            train_indices = rng.choice(train_indices, CLASSIFIER_SAMPLE_CAP, replace=False)
+            train_labels_combined = train_labels_combined[:CLASSIFIER_SAMPLE_CAP]
+        # Load embeddings for retraining
+        X_train_emb = load_embeddings_chunked(
+            training_embeddings, train_indices, desc="   Reload for retrain"
+        )
+        if USE_CLUSTER_ID_AS_FEATURE:
+            X_train = append_cluster_onehot(
+                X_train_emb, training_cluster_labels[train_indices],
+                cluster_to_idx, n_clusters_feat
+            )
+            del X_train_emb; gc.collect()
+        else:
+            X_train = X_train_emb
+        idx_to_label = {idx: lbl for idx, lbl in zip(train_indices, train_labels_combined)}
+        y_train = np.array([idx_to_label[int(i)] for i in train_indices], dtype=np.int32)
+        final_clf = train_ssl_classifier(X_train, y_train)
+        del X_train, y_train
+        gc.collect()
+
     print("   Using batched prediction to avoid loading full test memmap...")
     final_predictions, final_confidence = predict_test_batched(
         test_embeddings,
